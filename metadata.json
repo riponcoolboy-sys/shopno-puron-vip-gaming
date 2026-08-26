@@ -1,0 +1,6 @@
+{
+  "name": "Shopno Puron VIP Gaming",
+  "description": "Bengali VIP Gaming Gateway with real-time interactive games (Aviator, Egyptian Pharaoh Slot, 16-slot Lucky Mega Wheel), sustainable RTP House Advantage controller, comprehensive Admin Panel with KPI analytics, and instant BDT deposit/withdrawal verification.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

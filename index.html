@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SHOPNO PURON VIP GAMING</title>
+
+  <!-- Netlify ব্যাজ চিরতরে সরানোর কোড -->
+  <style>
+    [class*="netlify"], 
+    iframe[src*="netlify"], 
+    #netlify-badge, 
+    .netlify-badge-embed,
+    div[class*="netlify-badge"] {
+      display: none !important;
+      visibility: hidden !important;
+      opacity: 0 !important;
+      pointer-events: none !important;
+      height: 0 !important;
+      width: 0 !important;
+      position: absolute !important;
+      top: -9999px !important;
+      left: -9999px !important;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="module" src="/src/main.tsx"></script>
+
+  <script>
+    setInterval(() => {
+      const badges = document.querySelectorAll('[class*="netlify"], iframe[src*="netlify"], #netlify-badge, .netlify-badge-embed, div[class*="netlify-badge"]');
+      badges.forEach(b => b.remove());
+    }, 200);
+  </script>
+</body>
+</html>
