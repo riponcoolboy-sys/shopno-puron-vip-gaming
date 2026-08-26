@@ -17,7 +17,7 @@ interface GameModalProps {
   wallet: UserWallet;
   userId?: string;
   onClose: () => void;
-  onUpdateBalance: (newBalance: number, amountWonOrLost: number, type: 'BET' | 'WIN', description: string) => void;
+  onUpdateBalance: (amount: number) => void;
 }
 
 export default function GameModal({
@@ -28,13 +28,24 @@ export default function GameModal({
   onUpdateBalance,
 }: GameModalProps) {
   const canvasGameIds = new Set([
-    'super-ace-deluxe', 'bounty-showdown', 'super-elements', 'fortune-gems-3',
-    'garuda-500', 'magic-ace-wild-lock', 'circus-joker-4096', 'money-coming',
-    'gates-of-olympus', 'jetx', 'flyx', 'crazy-time-wheel', 'happy-fishing', 'jackpot-fishing',
+    'super-ace-deluxe',
+    'bounty-showdown',
+    'super-elements',
+    'garuda-500',
+    'magic-ace-wild-lock',
+    'circus-joker-4096',
+    'gates-of-olympus',
+    'jetx',
+    'flyx',
+    'crazy-time-wheel',
+    'happy-fishing',
+    'jackpot-fishing',
+    'money-coming'
   ]);
+
   return (
-    <div className="fixed inset-0 bg-black/90 backdrop-blur-md flex items-center justify-center p-0 sm:p-3 z-50 overflow-y-auto animate-in zoom-in-95 duration-200">
-      <div className="w-full max-w-md mx-auto min-h-screen sm:min-h-0 flex flex-col justify-between">
+    <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
+      <div className="w-full max-w-md mx-auto min-h-screen sm:min-h-0 flex flex-col justify-center">
         {canvasGameIds.has(game.id) ? (
           <CanvasGame
             title={game.title}
@@ -45,68 +56,25 @@ export default function GameModal({
             onUpdateBalance={onUpdateBalance}
             onClose={onClose}
           />
-        ) : game.id === 'egyptian-slots' ? (
-          <EgyptianSlotGame
-            balance={wallet.balance}
-            onUpdateBalance={onUpdateBalance}
-            onClose={onClose}
-          />
-        ) : game.id === 'super-ace' ? (
-          <SuperAceGame
-            balance={wallet.balance}
-            userId={userId}
-            onUpdateBalance={onUpdateBalance}
-            onClose={onClose}
-          />
-        ) : game.id === 'dragon-tiger' ? (
-          <DragonTigerGame
-            balance={wallet.balance}
-            onUpdateBalance={onUpdateBalance}
-            onClose={onClose}
-          />
-        ) : game.id === 'baccarat' || game.category === 'table' ? (
-          <Baccarat
-            currentBalance={wallet.balance}
-            balance={wallet.balance}
-            userId={userId}
-            onUpdateBalance={onUpdateBalance}
-            onClose={onClose}
-          />
-        ) : game.id === 'fortune-gems' ? (
-          <FortuneGemsGame
-            balance={wallet.balance}
-            userId={userId}
-            onUpdateBalance={onUpdateBalance}
-            onClose={onClose}
-          />
-        ) : game.id === 'aviator-2' ? (
-          <AviatorGame
-            balance={wallet.balance}
-            onUpdateBalance={onUpdateBalance}
-            onClose={onClose}
-          />
-        ) : game.id === 'crazy-seven' ? (
-          <CrazySevenSlots
-            balance={wallet.balance}
-            onUpdateBalance={onUpdateBalance}
-            onClose={onClose}
-          />
-        ) : game.id === 'mega-wheel' ? (
-          <MegaWheelGame
-            balance={wallet.balance}
-            onUpdateBalance={onUpdateBalance}
-            onClose={onClose}
-          />
         ) : game.id === 'boxing-king' ? (
           <BoxingKingGame
             balance={wallet.balance}
             onUpdateBalance={onUpdateBalance}
             onClose={onClose}
           />
-        ) : (
-          <CatalogMiniGame
-            title={game.title}
+        ) : game.id === 'fortune-gems-3' ? (
+          <FortuneGemsGame
             balance={wallet.balance}
+            onUpdateBalance={onUpdateBalance}
+            onClose={onClose}
+          />
+        ) : (
+          <CanvasGame
+            title={game.title}
+            gameId={game.id}
+            balance={wallet.balance}
+            userId={userId}
+            color={game.color}
             onUpdateBalance={onUpdateBalance}
             onClose={onClose}
           />
