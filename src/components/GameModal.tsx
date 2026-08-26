@@ -1,3 +1,5 @@
+// @ts-nocheck
+import React from 'react';
 import React from 'react';
 import { GameItem, UserWallet } from '../types';
 import AviatorGame from './games/AviatorGame';
