@@ -27,48 +27,70 @@ export default function GameModal({
   onClose,
   onUpdateBalance,
 }: GameModalProps) {
-  const canvasGameIds = new Set([
-    'super-ace-deluxe',
-    'bounty-showdown',
-    'super-elements',
-    'garuda-500',
-    'magic-ace-wild-lock',
-    'circus-joker-4096',
-    'gates-of-olympus',
-    'jetx',
-    'flyx',
-    'crazy-time-wheel',
-    'happy-fishing',
-    'jackpot-fishing',
-    'money-coming'
-  ]);
-
-  return (
-    <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
-      <div className="w-full max-w-md mx-auto min-h-screen sm:min-h-0 flex flex-col justify-center">
-        {canvasGameIds.has(game.id) ? (
-          <CanvasGame
-            title={game.title}
-            gameId={game.id}
+  // প্রতিটি গেমের জন্য তার নিজস্ব নির্ধারিত কম্পোনেন্ট রেন্ডার করা
+  const renderGameComponent = () => {
+    switch (game.id) {
+      case 'super-ace-deluxe':
+      case 'super-ace':
+        return (
+          <SuperAceGame
             balance={wallet.balance}
-            userId={userId}
-            color={game.color}
             onUpdateBalance={onUpdateBalance}
             onClose={onClose}
           />
-        ) : game.id === 'boxing-king' ? (
+        );
+
+      case 'boxing-king':
+        return (
           <BoxingKingGame
             balance={wallet.balance}
             onUpdateBalance={onUpdateBalance}
             onClose={onClose}
           />
-        ) : game.id === 'fortune-gems-3' ? (
+        );
+
+      case 'fortune-gems-3':
+      case 'fortune-gems':
+        return (
           <FortuneGemsGame
             balance={wallet.balance}
             onUpdateBalance={onUpdateBalance}
             onClose={onClose}
           />
-        ) : (
+        );
+
+      case 'jetx':
+      case 'flyx':
+      case 'aviator':
+        return (
+          <AviatorGame
+            balance={wallet.balance}
+            onUpdateBalance={onUpdateBalance}
+            onClose={onClose}
+          />
+        );
+
+      case 'circus-joker-4096':
+        return (
+          <CrazySevenSlots
+            balance={wallet.balance}
+            onUpdateBalance={onUpdateBalance}
+            onClose={onClose}
+          />
+        );
+
+      case 'crazy-time-wheel':
+        return (
+          <MegaWheelGame
+            balance={wallet.balance}
+            onUpdateBalance={onUpdateBalance}
+            onClose={onClose}
+          />
+        );
+
+      default:
+        // অন্য যেগুলোর জন্য আলাদা কোনো UI ফাইল নেই সেগুলোর জন্য ক্যানভাস বোর্ড
+        return (
           <CanvasGame
             title={game.title}
             gameId={game.id}
@@ -78,7 +100,14 @@ export default function GameModal({
             onUpdateBalance={onUpdateBalance}
             onClose={onClose}
           />
-        )}
+        );
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
+      <div className="w-full max-w-md mx-auto min-h-screen sm:min-h-0 flex flex-col justify-center">
+        {renderGameComponent()}
       </div>
     </div>
   );
