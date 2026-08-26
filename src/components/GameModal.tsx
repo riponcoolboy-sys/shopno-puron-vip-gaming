@@ -27,8 +27,7 @@ export default function GameModal({
   onClose,
   onUpdateBalance,
 }: GameModalProps) {
-  // প্রতিটি গেমের জন্য তার নিজস্ব নির্ধারিত কম্পোনেন্ট রেন্ডার করা
-  const renderGameComponent = () => {
+  const renderGameComponent = (): React.ReactNode => {
     switch (game.id) {
       case 'super-ace-deluxe':
       case 'super-ace':
@@ -89,7 +88,6 @@ export default function GameModal({
         );
 
       default:
-        // অন্য যেগুলোর জন্য আলাদা কোনো UI ফাইল নেই সেগুলোর জন্য ক্যানভাস বোর্ড
         return (
           <CanvasGame
             title={game.title}
