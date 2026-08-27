@@ -21,7 +21,11 @@ export default function PixiSlotGame({ balance, onUpdateBalance, onClose }: Pixi
   const [bet, setBet] = useState(10);
   const [isSpinning, setIsSpinning] = useState(false);
   const [winAmount, setWinAmount] = useState(0);
-  const [grid, setGrid] = useState<string[]>(Array(9).fill('/images/garuda.png'));
+
+  // Initial random symbols in grid
+  const [grid, setGrid] = useState<string[]>(() => 
+    Array(9).fill(0).map(() => SYMBOLS[Math.floor(Math.random() * SYMBOLS.length)].img)
+  );
   const [showCoins, setShowCoins] = useState(false);
 
   const playSound = (soundName: string) => {
@@ -49,12 +53,12 @@ export default function PixiSlotGame({ balance, onUpdateBalance, onClose }: Pixi
       setGrid(randomGrid);
       counter++;
 
-      if (counter > 16) {
+      if (counter > 15) {
         clearInterval(interval);
         evaluateWin(randomGrid);
         setIsSpinning(false);
       }
-    }, 90);
+    }, 100);
   };
 
   const evaluateWin = (finalGrid: string[]) => {
@@ -100,95 +104,94 @@ export default function PixiSlotGame({ balance, onUpdateBalance, onClose }: Pixi
       }
       playSound('coin');
 
-      setTimeout(() => setShowCoins(false), 4500);
+      setTimeout(() => setShowCoins(false), 4000);
     }
   };
 
   return (
-    <div className="relative w-full max-w-md bg-gradient-to-b from-purple-950 via-slate-900 to-black border-4 border-amber-500 rounded-3xl p-4 text-white shadow-[0_0_50px_rgba(245,158,11,0.3)] overflow-hidden">
+    <div className="relative w-full max-w-md bg-gradient-to-b from-slate-900 via-purple-950 to-slate-950 border-4 border-amber-500 rounded-3xl p-4 text-white shadow-2xl overflow-hidden">
       
-      {/* Top Bar with Clear Back Button */}
-      <div className="flex justify-between items-center mb-3 bg-black/60 p-2.5 rounded-2xl border border-amber-500/30">
+      {/* 1. Header with Balance & Clear Back Button */}
+      <div className="flex justify-between items-center mb-3 bg-black/70 p-3 rounded-2xl border border-amber-500/40">
         <div>
-          <p className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">বর্তমান ব্যালেন্স</p>
-          <p className="text-xl font-extrabold text-amber-400 tracking-wide">৳ {balance.toLocaleString()}</p>
+          <p className="text-[10px] uppercase font-bold text-gray-400">ব্যালেন্স</p>
+          <p className="text-xl font-extrabold text-amber-400">৳ {balance.toLocaleString()}</p>
         </div>
         <button 
           onClick={() => { playSound('click'); onClose(); }}
-          className="px-4 py-2 bg-gradient-to-r from-red-600 to-red-800 hover:from-red-500 hover:to-red-700 text-white font-extrabold text-xs rounded-xl shadow-lg border border-red-400 active:scale-95 transition-all flex items-center gap-1"
+          className="px-4 py-2 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white font-extrabold text-xs rounded-xl shadow-lg border border-red-400 active:scale-95 transition-all flex items-center gap-1"
         >
-          <span>✕</span> বের হন (Back)
+          <span>✕</span> বন্ধ করুন (Back)
         </button>
       </div>
 
-      {/* Garuda Mascot Header Display */}
-      <div className="relative flex justify-center items-center my-2">
+      {/* 2. Floating Animated Garuda Character */}
+      <div className="relative flex justify-center items-center my-1">
         <div className="absolute w-28 h-28 bg-amber-500/20 rounded-full blur-xl animate-pulse" />
         <img 
           src="/images/garuda.png" 
-          alt="Garuda Leader" 
-          className="w-24 h-24 object-contain z-10 drop-shadow-[0_10px_10px_rgba(0,0,0,0.8)] hover:scale-105 transition-transform duration-300"
+          alt="Animated Garuda" 
+          className="w-24 h-24 object-contain z-10 animate-bounce transition-all duration-700 hover:scale-110 drop-shadow-[0_10px_15px_rgba(245,158,11,0.4)]"
+          style={{ animationDuration: '2s' }}
         />
       </div>
 
-      {/* 3x3 Reel Slot Frame */}
-      <div className="grid grid-cols-3 gap-2.5 bg-gradient-to-b from-slate-950 to-black p-3.5 rounded-2xl border-2 border-amber-500/60 shadow-[inset_0_0_20px_rgba(0,0,0,0.8)] relative">
+      {/* 3. 3x3 Grid */}
+      <div className="grid grid-cols-3 gap-2 bg-black/80 p-3.5 rounded-2xl border-2 border-amber-500/50 relative">
         {grid.map((imgSrc, idx) => (
           <div 
             key={idx} 
-            className={`aspect-square bg-gradient-to-b from-slate-800 to-slate-900 border-2 border-amber-500/30 rounded-xl flex items-center justify-center p-2 shadow-xl transition-all ${
-              isSpinning ? 'scale-95 opacity-80 blur-[0.5px]' : 'scale-100 opacity-100'
+            className={`aspect-square bg-slate-900 border border-amber-500/30 rounded-xl flex items-center justify-center p-2 shadow-inner transition-all ${
+              isSpinning ? 'scale-95 opacity-80' : 'scale-100 opacity-100'
             }`}
           >
             <img 
               src={imgSrc} 
               alt="symbol" 
-              className={`w-full h-full object-contain ${isSpinning ? 'animate-pulse scale-110' : 'drop-shadow-md'}`}
+              className={`w-full h-full object-contain ${isSpinning ? 'animate-pulse' : ''}`}
             />
           </div>
         ))}
 
-        {/* Big Win & Coin Shower Modal */}
+        {/* Win Modal */}
         {showCoins && (
-          <div className="absolute inset-0 z-20 pointer-events-none flex justify-center items-center bg-black/75 rounded-2xl backdrop-blur-sm animate-fade-in">
-            <div className="text-center bg-gradient-to-b from-amber-500 to-amber-700 p-5 rounded-2xl border-2 border-yellow-200 shadow-[0_0_30px_rgba(251,191,36,0.8)] animate-bounce">
-              <p className="text-black font-black text-3xl tracking-wider drop-shadow">🎉 BIG WIN! 🎉</p>
-              <p className="text-white text-2xl font-extrabold mt-1">৳ {winAmount}</p>
+          <div className="absolute inset-0 z-20 pointer-events-none flex justify-center items-center bg-black/70 rounded-2xl">
+            <div className="text-center bg-gradient-to-b from-amber-400 to-amber-600 p-5 rounded-2xl border-2 border-yellow-200 shadow-2xl animate-bounce">
+              <p className="text-black font-black text-3xl">BIG WIN!</p>
+              <p className="text-white text-2xl font-bold mt-1">৳ {winAmount}</p>
             </div>
           </div>
         )}
       </div>
 
-      {/* Control Panel */}
+      {/* 4. Controls */}
       <div className="mt-4 flex flex-col gap-3">
-        {/* Bet Selector */}
         <div className="flex justify-between items-center bg-black/60 p-2.5 rounded-2xl border border-amber-500/30">
           <button 
             onClick={() => { playSound('click'); setBet(prev => Math.max(10, prev - 10)); }}
-            className="w-11 h-11 bg-slate-800 hover:bg-slate-700 border border-amber-500/50 rounded-xl font-black text-xl text-amber-400 active:scale-90 transition-all shadow-md"
+            className="w-10 h-10 bg-slate-800 border border-amber-500/40 rounded-xl font-black text-xl text-amber-400 hover:bg-slate-700"
           >
             -
           </button>
           <div className="text-center">
-            <p className="text-[10px] uppercase text-gray-400 font-bold">বেট অ্যামাউন্ট</p>
-            <p className="font-extrabold text-lg text-amber-300">৳ {bet}</p>
+            <p className="text-[10px] uppercase text-gray-400">বেট অ্যামাউন্ট</p>
+            <p className="font-bold text-amber-300">৳ {bet}</p>
           </div>
           <button 
             onClick={() => { playSound('click'); setBet(prev => prev + 10); }}
-            className="w-11 h-11 bg-slate-800 hover:bg-slate-700 border border-amber-500/50 rounded-xl font-black text-xl text-amber-400 active:scale-90 transition-all shadow-md"
+            className="w-10 h-10 bg-slate-800 border border-amber-500/40 rounded-xl font-black text-xl text-amber-400 hover:bg-slate-700"
           >
             +
           </button>
         </div>
 
-        {/* Big Spin Button */}
         <button
           onClick={handleSpin}
           disabled={isSpinning || balance < bet}
-          className={`w-full py-4 rounded-2xl font-black text-2xl tracking-widest shadow-2xl border-2 transition-all duration-200 ${
+          className={`w-full py-4 rounded-2xl font-black text-2xl tracking-widest shadow-xl border-2 transition-all ${
             isSpinning || balance < bet
-              ? 'bg-gray-800 text-gray-500 border-gray-600 cursor-not-allowed'
-              : 'bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-600 text-slate-950 border-yellow-200 hover:brightness-115 active:scale-95 shadow-[0_0_20px_rgba(245,158,11,0.5)]'
+              ? 'bg-gray-800 text-gray-500 border-gray-700 cursor-not-allowed'
+              : 'bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-600 text-black border-yellow-300 hover:brightness-110 active:scale-95'
           }`}
         >
           {isSpinning ? 'SPINNING...' : 'SPIN'}
