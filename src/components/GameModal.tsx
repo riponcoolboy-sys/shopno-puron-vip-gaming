@@ -1,12 +1,12 @@
 // @ts-nocheck
 import React from 'react';
-import React from 'react';
 import { GameItem, UserWallet } from '../types';
 import AviatorGame from './games/AviatorGame';
 import CrazySevenSlots from './games/CrazySevenSlots';
 import MegaWheelGame from './games/MegaWheelGame';
 import BoxingKingGame from './games/BoxingKingGame';
 import FortuneGemsGame from './games/FortuneGemsGame';
+import FortuneGems from './games/FortuneGems';
 import EgyptianSlotGame from './games/EgyptianSlotGame';
 import Baccarat from './games/Baccarat';
 import SuperAceGame from './games/SuperAceGame';
@@ -50,10 +50,12 @@ export default function GameModal({
           />
         );
 
+      case 'fortune-garuda-500':
+      case 'fortune-garuda':
       case 'fortune-gems-3':
       case 'fortune-gems':
         return (
-          <FortuneGemsGame
+          <FortuneGems
             balance={wallet.balance}
             onUpdateBalance={onUpdateBalance}
             onClose={onClose}

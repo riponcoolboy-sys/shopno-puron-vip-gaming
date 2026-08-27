@@ -1,197 +1,162 @@
-import React, { useState } from 'react';
-import { apiUrl } from '../../utils/security';
-import { BET_PRESETS, getAffordableBet } from '../../utils/betPresets';
+// @ts-nocheck
+import React, { useState, useEffect } from 'react';
 
-interface FortuneGemsProps {
-  initialBalance?: number;
-  onUpdateBalance?: (newBalance: number, amountWonOrLost: number, type: 'BET' | 'WIN', description: string) => void;
-  onClose?: () => void;
+interface FortuneGarudaProps {
+  balance: number;
+  onUpdateBalance: (amount: number) => void;
+  onClose: () => void;
 }
 
-export default function FortuneGems({ initialBalance = 5000, onUpdateBalance, onClose }: FortuneGemsProps) {
-  const [reels, setReels] = useState(['RED_GEM', 'BLUE_GEM', 'GREEN_GEM']);
-  const [fourthReel, setFourthReel] = useState<{ type: string; value: string | number }>({ type: 'MULTIPLIER', value: 1 });
-  const [balance, setBalance] = useState(initialBalance); // টেস্ট ব্যালেন্স
-  const [betAmount, setBetAmount] = useState(1);
-  const [isSpinning, setIsSpinning] = useState(false);
-  const [winMessage, setWinMessage] = useState('');
+const SYMBOLS = ['👑', '💎', '🟢', '🟨', 'K', 'Q', 'J', '10'];
+const MULTIPLIERS = ['1x', '2x', '3x', '5x', '10x', '15x', '500x'];
 
+export default function FortuneGarudaGame({
+  balance,
+  onUpdateBalance,
+  onClose,
+}: FortuneGarudaProps) {
+  const [bet, setBet] = useState(1);
+  const [spinning, setSpinning] = useState(false);
+  const [reels, setReels] = useState(['👑', '💎', '🟢']);
+  const [activeMultiplier, setActiveMultiplier] = useState('1x');
+  const [lastWin, setLastWin] = useState(0);
 
-  const handleSpin = async () => {
-    const currentBal = Number(balance) || 0;
-    if (currentBal <= 0) {
-      alert("আপনার ব্যালেন্স ৳০.০০! অনুগ্রহ করে রিচার্জ করুন।");
+  const handleSpin = () => {
+    if (balance < bet) {
+      alert('পর্যাপ্ত ব্যালেন্স নেই!');
       return;
     }
 
-    const finalBet = getAffordableBet(currentBal, Number(betAmount));
-    if (finalBet === null) {
-      alert("সঠিক বাজি নির্বাচন করুন");
-      return;
-    }
+    // ১. ওয়ালেট থেকে টাকা কাটা
+    onUpdateBalance(-bet);
+    setSpinning(true);
+    setLastWin(0);
 
-    setIsSpinning(true);
-    setWinMessage('');
+    // ২. স্পিন অ্যানিমেশন সিমুলেশন
+    const spinInterval = setInterval(() => {
+      setReels([
+        SYMBOLS[Math.floor(Math.random() * SYMBOLS.length)],
+        SYMBOLS[Math.floor(Math.random() * SYMBOLS.length)],
+        SYMBOLS[Math.floor(Math.random() * SYMBOLS.length)],
+      ]);
+      setActiveMultiplier(MULTIPLIERS[Math.floor(Math.random() * MULTIPLIERS.length)]);
+    }, 100);
 
-    // Deduct locally or notify
-    const afterBet = Math.max(0, currentBal - finalBet);
-    setBalance(afterBet);
-    if (onUpdateBalance) {
-      onUpdateBalance(afterBet, finalBet, 'BET', `Fortune Gems Bet: ৳${finalBet}`);
-    }
+    // ৩. ৩ সেকেন্ড পর রেজাল্ট সেট
+    setTimeout(() => {
+      clearInterval(spinInterval);
+      setSpinning(false);
 
-    try {
-      const response = await fetch(apiUrl('/api/game/fortune-gems/spin'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: 'usr_78912', betAmount: finalBet })
-      });
-      
-      const data = await response.json();
+      const isWin = Math.random() < 0.35; // ৩৫% উইনিং চান্স
+      if (isWin) {
+        const symbol = SYMBOLS[Math.floor(Math.random() * 4)]; // হাই পেয়িং সিম্বল
+        const mult = MULTIPLIERS[Math.floor(Math.random() * 4)];
+        const multVal = parseInt(mult) || 1;
 
-      if (data.success) {
-        // চাকা ঘোরা এনিমেশন টাইমার (২ সেকেন্ড)
-        setTimeout(() => {
-          setReels(data.reels);
-          setFourthReel(data.fourthReel);
-          const serverBal = Number(data.currentBalance) || (currentBal - finalBet + (Number(data.winAmount) || 0));
-          setBalance(serverBal);
-          setIsSpinning(false);
+        setReels([symbol, symbol, symbol]);
+        setActiveMultiplier(mult);
 
-          if (data.winAmount > 0) {
-            const winNum = Number(data.winAmount);
-            setWinMessage(`MEGA WIN! ৳${winNum}`);
-            if (onUpdateBalance) {
-              onUpdateBalance(serverBal, winNum, 'WIN', `Fortune Gems Win: ৳${winNum}`);
-            }
-          }
-        }, 1500);
-      } else {
-        alert(data.message || 'পরের স্পিনে আবার চেষ্টা করুন!');
-        setIsSpinning(false);
+        const winAmount = bet * 5 * multVal;
+        setLastWin(winAmount);
+        onUpdateBalance(winAmount);
       }
-    } catch (err) {
-      console.error(err);
-      setIsSpinning(false);
-    }
+    }, 2000);
   };
 
   return (
-    <div className="min-h-[480px] bg-[#0d0714] text-white flex flex-col justify-between p-4 max-w-md mx-auto relative border border-amber-500/20 rounded-xl shadow-2xl">
-      {/* ১. টপ ব্যালেন্স বার */}
-      <div className="flex justify-between items-center bg-[#180e28] p-3 rounded-lg border border-amber-500/30">
-        <span className="text-xs text-gray-400">ব্যালেন্স: <strong className="text-amber-400 text-sm">৳{balance}</strong></span>
-        <div className="flex items-center gap-2">
-          <h2 className="text-amber-400 font-bold text-sm tracking-widest">FORTUNE GEMS 2</h2>
-          {onClose && (
-            <button 
-              onClick={onClose} 
-              className="text-xs bg-gray-800 hover:bg-gray-700 px-2 py-0.5 rounded text-gray-300"
-            >
-              ✕
-            </button>
-          )}
-        </div>
+    <div className="w-full max-w-md mx-auto bg-slate-950 rounded-2xl overflow-hidden border border-amber-500/40 shadow-2xl relative flex flex-col min-h-[620px]">
+      
+      {/* Top Banner (Garuda Character Art Section) */}
+      <div className="relative h-56 bg-gradient-to-b from-amber-900/60 via-slate-900 to-black flex flex-col items-center justify-center overflow-hidden border-b-2 border-amber-500/40">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-amber-500/20 via-transparent to-transparent animate-pulse"></div>
+        <span className="text-7xl animate-bounce drop-shadow-[0_10px_10px_rgba(234,179,8,0.5)] z-10">🦅</span>
+        <h2 className="text-2xl font-black text-amber-400 tracking-wider font-serif z-10 mt-2 drop-shadow-md">
+          FORTUNE GARUDA
+        </h2>
+        <span className="text-[10px] text-amber-200/80 bg-amber-950/80 px-2 py-0.5 rounded border border-amber-500/30 z-10 mt-1">
+          500X MULTIPLIER
+        </span>
       </div>
 
-      {/* ২. মেইন গেম স্লট বোর্ড */}
-      <div className="my-auto flex justify-center items-center gap-2 py-6">
-        {/* ৩x৩ স্লট রিল */}
-        <div className={`flex gap-2 p-3 bg-black/60 rounded-xl border border-yellow-600/40 ${isSpinning ? 'opacity-50 animate-pulse' : ''}`}>
-          {reels.map((symbol, index) => (
-            <div key={index} className="w-16 h-24 bg-[#1e1333] border border-amber-500/30 rounded-lg flex flex-col justify-center items-center font-bold text-xs text-amber-300 shadow-inner">
-              <span className="text-2xl mb-1">
-                {symbol === 'RED_GEM' ? '💎' : symbol === 'BLUE_GEM' ? '🔷' : symbol === 'WILD' ? '👑' : symbol === 'GREEN_GEM' ? '🟢' : '🔱'}
-              </span>
-              <span className="text-[10px] truncate max-w-[56px] text-center">{symbol}</span>
+      {/* Main Reels UI Frame */}
+      <div className="p-4 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-amber-950/40 via-slate-950 to-black flex-1 flex flex-col justify-between">
+        
+        {/* Reels Grid (3 Main Reels + 1 Multiplier Reel) */}
+        <div className="grid grid-cols-4 gap-2 bg-gradient-to-b from-amber-900/30 to-amber-950/80 p-3 rounded-xl border-2 border-amber-500/50 shadow-inner">
+          {reels.map((symbol, idx) => (
+            <div
+              key={idx}
+              className={`h-24 bg-slate-900/90 rounded-lg border border-amber-500/30 flex items-center justify-center text-4xl shadow-md ${
+                spinning ? 'animate-pulse blur-[1px]' : ''
+              }`}
+            >
+              {symbol}
             </div>
           ))}
+
+          {/* Multiplier Side Reel */}
+          <div className="h-24 bg-amber-500/10 rounded-lg border-2 border-amber-400 flex flex-col items-center justify-center text-amber-300 font-bold shadow-md">
+            <span className="text-[10px] text-amber-400/70 uppercase">Mult</span>
+            <span className="text-xl font-black text-amber-300 animate-pulse">
+              {activeMultiplier}
+            </span>
+          </div>
         </div>
 
-        {/* ৪র্থ বোনাস চাকা */}
-        <div className="w-16 h-24 bg-gradient-to-b from-amber-600 to-yellow-800 rounded-lg flex flex-col justify-center items-center border-2 border-yellow-300 shadow-lg">
-          <span className="text-xs text-black font-extrabold uppercase">Bonus</span>
-          <span className="text-xl font-black text-white mt-1">
-            {fourthReel.type === 'MULTIPLIER' ? `${fourthReel.value}X` : '🎡'}
-          </span>
-        </div>
-      </div>
-
-      {/* ৩. বটম স্পিন ও বেট কন্ট্রোল */}
-      <div className="bg-[#180e28] p-3 rounded-xl border border-amber-500/30 flex flex-col gap-2">
-        <div className="flex gap-1 overflow-x-auto justify-center">
-          {balance > 0 && balance < 10 && (
-            <button
-              type="button"
-              onClick={() => setBetAmount(0.5)}
-              className={`px-2 py-1 rounded text-xs font-bold transition border ${
-                betAmount === 0.5
-                  ? 'bg-amber-500 text-black border-amber-300 font-black'
-                  : 'bg-gray-800 text-amber-300 border-amber-500/30 hover:bg-gray-700'
-              }`}
-            >
-              ৳০.৫
-            </button>
-          )}
-          {BET_PRESETS.map((amt) => (
-            <button
-              key={amt}
-              type="button"
-              onClick={() => setBetAmount(amt)}
-              className={`px-2 py-1 rounded text-xs font-bold transition border ${
-                betAmount === amt
-                  ? 'bg-amber-500 text-black border-amber-300 font-black'
-                  : 'bg-gray-800 text-gray-300 border-gray-700 hover:bg-gray-700'
-              }`}
-            >
-              ৳{amt}
-            </button>
-          ))}
+        {/* Win Status Display */}
+        <div className="text-center my-2">
+          <p className="text-xs text-amber-300/70 uppercase font-semibold">Total Win</p>
+          <p className="text-2xl font-black text-amber-400 tracking-wider">
+            ৳{lastWin.toFixed(2)}
+          </p>
         </div>
 
-        <div className="flex justify-between items-center gap-2">
-          <div className="flex items-center gap-2">
-            <button 
-              type="button"
-              onClick={() => setBetAmount(prev => (prev <= 1 ? 0.5 : Math.max(1, prev - 5)))} 
-              className="w-8 h-8 bg-gray-800 rounded-full text-lg font-bold hover:bg-gray-700 flex items-center justify-center"
-            >
-              -
-            </button>
-            <span className="text-xs font-semibold font-mono text-amber-400">৳{betAmount}</span>
-            <button 
-              type="button"
-              onClick={() => setBetAmount(prev => (prev < 1 ? 1 : prev + 5))} 
-              className="w-8 h-8 bg-gray-800 rounded-full text-lg font-bold hover:bg-gray-700 flex items-center justify-center"
-            >
-              +
-            </button>
+        {/* Controls & Golden Spin Button */}
+        <div className="bg-slate-900/80 p-3 rounded-xl border border-amber-500/20 flex items-center justify-between gap-3">
+          {/* Bet Control */}
+          <div className="flex flex-col gap-1">
+            <span className="text-[10px] text-gray-400 font-bold uppercase">Bet Amount</span>
+            <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-lg border border-amber-500/30">
+              <button
+                onClick={() => setBet(Math.max(1, bet - 1))}
+                className="w-6 h-6 bg-amber-600/30 hover:bg-amber-600/50 text-amber-300 rounded font-bold text-xs"
+              >
+                -
+              </button>
+              <span className="text-xs font-bold text-amber-400 px-2">৳{bet}</span>
+              <button
+                onClick={() => setBet(bet + 5)}
+                className="w-6 h-6 bg-amber-600/30 hover:bg-amber-600/50 text-amber-300 rounded font-bold text-xs"
+              >
+                +
+              </button>
+            </div>
           </div>
 
+          {/* JILI Style Golden Spin Button */}
           <button
-            type="button"
+            disabled={spinning}
             onClick={handleSpin}
-            disabled={isSpinning}
-            className="bg-gradient-to-r from-amber-500 to-yellow-500 text-black font-extrabold px-6 py-2.5 rounded-full hover:brightness-110 disabled:opacity-50 shadow-lg active:scale-95 transition text-sm"
+            className={`w-20 h-20 rounded-full bg-gradient-to-tr from-amber-600 via-yellow-400 to-amber-200 p-1 shadow-[0_0_20px_rgba(245,158,11,0.5)] active:scale-95 transition ${
+              spinning ? 'opacity-50 cursor-not-allowed' : 'hover:brightness-110'
+            }`}
           >
-            {isSpinning ? 'ঘুরছে...' : 'SPIN'}
+            <div className="w-full h-full rounded-full bg-gradient-to-b from-amber-900 to-black flex items-center justify-center border-2 border-amber-300">
+              <span className="text-amber-300 font-black text-xs tracking-widest uppercase">
+                {spinning ? 'SPIN...' : 'JILI'}
+              </span>
+            </div>
           </button>
+        </div>
+
+        {/* Bottom Wallet Status */}
+        <div className="flex items-center justify-between mt-2 px-1 text-[11px] text-gray-400">
+          <span>
+            Balance: <strong className="text-amber-400">৳{balance}</strong>
+          </span>
+          <span className="text-emerald-400">● Real Wallet Active</span>
         </div>
       </div>
-
-      {/* ৪. উইন মেসেজ পপআপ */}
-      {winMessage && (
-        <div className="absolute inset-0 bg-black/80 flex flex-col justify-center items-center rounded-xl z-50 p-4">
-          <h1 className="text-3xl font-black text-amber-400 animate-bounce text-center">{winMessage}</h1>
-          <button 
-            type="button"
-            onClick={() => setWinMessage('')}
-            className="mt-4 bg-amber-500 text-black font-bold px-6 py-2 rounded-full text-xs"
-          >
-            ঠিক আছে
-          </button>
-        </div>
-      )}
     </div>
   );
 }
