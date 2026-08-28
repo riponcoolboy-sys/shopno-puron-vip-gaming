@@ -7,7 +7,7 @@ export interface GameItem {
   popular?: boolean;
 }
 
-export const GAMES_DATA: GameItem[] = [
+export const games: GameItem[] = [
   {
     id: 'garuda-slot',
     title: 'Garuda Fire Slot',
@@ -17,3 +17,6 @@ export const GAMES_DATA: GameItem[] = [
     popular: true,
   }
 ];
+
+export const GAMES_DATA = games;
+export default games;

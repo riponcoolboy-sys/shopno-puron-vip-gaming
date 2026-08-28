@@ -1,12 +1,6 @@
 // @ts-nocheck
 import React, { useState, useEffect, useRef } from 'react';
 
-interface PixiSlotGameProps {
-  balance?: number;
-  onUpdateBalance?: (amount: number) => void;
-  onClose?: () => void;
-}
-
 const SYMBOLS = [
   { id: 'garuda', img: '/images/garuda.png', payout: 50 },
   { id: 'wild', img: '/images/wild.png', payout: 30 },
@@ -19,8 +13,24 @@ const SYMBOLS = [
 
 const MULTIPLIERS = [1, 2, 3, 5, 10];
 
-export default function PixiSlotGame({ balance = 1000, onUpdateBalance, onClose }: PixiSlotGameProps) {
-  const [currentBalance, setCurrentBalance] = useState(balance);
+export default function PixiSlotGame(props: any) {
+  // Safe back / close handler
+  const handleClose = () => {
+    playSound('click');
+    setIsAutoSpin(false);
+    if (typeof props.onClose === 'function') props.onClose();
+    else if (typeof props.onBack === 'function') props.onBack();
+    else window.history.back();
+  };
+
+  // Real Balance Linking (Reads from props or localStorage)
+  const [currentBalance, setCurrentBalance] = useState<number>(() => {
+    if (typeof props.balance === 'number') return props.balance;
+    if (props.user && typeof props.user.balance === 'number') return props.user.balance;
+    const saved = localStorage.getItem('user_balance');
+    return saved ? parseFloat(saved) : 0;
+  });
+
   const [bet, setBet] = useState(10);
   const [isSpinning, setIsSpinning] = useState(false);
   const [isAutoSpin, setIsAutoSpin] = useState(false);
@@ -34,6 +44,26 @@ export default function PixiSlotGame({ balance = 1000, onUpdateBalance, onClose 
   const [grid, setGrid] = useState<string[]>(() => 
     Array(9).fill(0).map(() => SYMBOLS[Math.floor(Math.random() * SYMBOLS.length)].img)
   );
+
+  // Keep balance synced with parent components if props change
+  useEffect(() => {
+    if (typeof props.balance === 'number') {
+      setCurrentBalance(props.balance);
+    } else if (props.user && typeof props.user.balance === 'number') {
+      setCurrentBalance(props.user.balance);
+    }
+  }, [props.balance, props.user]);
+
+  // Update wallet function
+  const updateWallet = (delta: number) => {
+    setCurrentBalance((prev) => {
+      const nextBal = Math.max(0, prev + delta);
+      localStorage.setItem('user_balance', nextBal.toString());
+      if (typeof props.onUpdateBalance === 'function') props.onUpdateBalance(delta);
+      if (typeof props.updateBalance === 'function') props.updateBalance(delta);
+      return nextBal;
+    });
+  };
 
   const playSound = (soundName: string) => {
     try {
@@ -51,9 +81,8 @@ export default function PixiSlotGame({ balance = 1000, onUpdateBalance, onClose 
     playSound('click');
     playSound('spin');
     
-    const newBal = currentBalance - bet;
-    setCurrentBalance(newBal);
-    if (onUpdateBalance) onUpdateBalance(-bet);
+    // Deduct bet amount from main wallet
+    updateWallet(-bet);
 
     setIsSpinning(true);
     setWinAmount(0);
@@ -70,15 +99,15 @@ export default function PixiSlotGame({ balance = 1000, onUpdateBalance, onClose 
       setActiveMultiplier(randomMult);
       counter++;
 
-      if (counter > 14) {
+      if (counter > 12) {
         clearInterval(interval);
-        evaluateWin(randomGrid, randomMult, newBal);
+        evaluateWin(randomGrid, randomMult);
         setIsSpinning(false);
       }
     }, 90);
   };
 
-  const evaluateWin = (finalGrid: string[], multiplier: number, latestBal: number) => {
+  const evaluateWin = (finalGrid: string[], multiplier: number) => {
     const lines = [
       [0, 1, 2], [3, 4, 5], [6, 7, 8], 
       [0, 3, 6], [1, 4, 7], [2, 5, 8], 
@@ -113,9 +142,9 @@ export default function PixiSlotGame({ balance = 1000, onUpdateBalance, onClose 
     if (baseWin > 0) {
       const totalWin = baseWin * multiplier;
       setWinAmount(totalWin);
-      const updated = latestBal + totalWin;
-      setCurrentBalance(updated);
-      if (onUpdateBalance) onUpdateBalance(totalWin);
+      
+      // Add win back to main wallet
+      updateWallet(totalWin);
       
       setShowCoins(true);
       playSound('fire');
@@ -135,13 +164,6 @@ export default function PixiSlotGame({ balance = 1000, onUpdateBalance, onClose 
     return () => clearTimeout(timer);
   }, [isAutoSpin, isSpinning]);
 
-  const handleClose = () => {
-    playSound('click');
-    setIsAutoSpin(false);
-    if (onClose) onClose();
-    else window.history.back();
-  };
-
   return (
     <div className="w-full max-w-md mx-auto bg-stone-950 border-4 border-amber-600 rounded-3xl p-3 text-white shadow-2xl relative overflow-hidden select-none font-sans">
       
@@ -154,7 +176,7 @@ export default function PixiSlotGame({ balance = 1000, onUpdateBalance, onClose 
           <span>←</span> Back
         </button>
 
-        <div className="flex items-center gap-2 bg-black/70 px-3.5 py-1 rounded-xl border border-amber-500/40">
+        <div className="flex items-center gap-2 bg-black/80 px-3.5 py-1 rounded-xl border border-amber-500/50 shadow-inner">
           <span className="text-base">💰</span>
           <div>
             <p className="text-[9px] uppercase font-bold text-amber-400 leading-none">Wallet</p>
@@ -178,10 +200,10 @@ export default function PixiSlotGame({ balance = 1000, onUpdateBalance, onClose 
         <h2 className="text-amber-200 font-black text-xs tracking-widest uppercase drop-shadow">FORTUNE GARUDA 500</h2>
       </div>
 
-      {/* 4. MAIN GAME BOARD (3x3 REELS + RIGHT MULTIPLIER COLUMN) */}
-      <div className="flex gap-1.5 bg-stone-900 p-2 rounded-b-2xl border-2 border-amber-500/60 relative">
+      {/* 4. MAIN GAME BOARD */}
+      <div className="flex gap-2 bg-stone-900 p-2 rounded-b-2xl border-2 border-amber-500/60 relative">
         
-        {/* LEFT: 3x3 REEL GRID */}
+        {/* REEL GRID (3x3) */}
         <div className="grid grid-cols-3 gap-1.5 flex-1">
           {grid.map((imgSrc, idx) => (
             <div 
@@ -197,26 +219,28 @@ export default function PixiSlotGame({ balance = 1000, onUpdateBalance, onClose 
           ))}
         </div>
 
-        {/* RIGHT: MULTIPLIER REEL (2x, 3x, 1x, 5x, 10x) */}
-        <div className="w-14 flex flex-col justify-between bg-stone-950 p-1 rounded-xl border border-amber-500/30">
+        {/* HIGH QUALITY MULTIPLIER REEL (RIGHT SIDE) */}
+        <div className="w-16 flex flex-col justify-between bg-gradient-to-b from-stone-950 via-amber-950/40 to-stone-950 p-1 rounded-xl border-2 border-amber-600/50 shadow-2xl">
           {MULTIPLIERS.map((m) => {
             const isActive = activeMultiplier === m;
             return (
               <div 
                 key={m} 
-                className={`py-1 rounded-lg text-center font-black text-xs border transition-all ${
+                className={`w-full py-1.5 rounded-xl flex items-center justify-center font-black text-xs transition-all duration-200 relative ${
                   isActive 
-                    ? 'bg-gradient-to-r from-amber-400 to-yellow-500 text-black border-yellow-200 scale-105 shadow-[0_0_10px_rgba(251,191,36,0.8)]' 
-                    : 'bg-stone-900 text-amber-500/60 border-amber-500/20 opacity-70'
+                    ? 'bg-gradient-to-b from-yellow-300 via-amber-400 to-amber-600 text-black border-2 border-yellow-100 scale-105 shadow-[0_0_15px_rgba(251,191,36,0.9)] z-10' 
+                    : 'bg-gradient-to-b from-stone-900 to-stone-950 text-amber-500/60 border border-amber-500/20 opacity-60'
                 }`}
               >
-                {m}x
+                <span className={`drop-shadow-md ${isActive ? 'text-black text-sm font-black' : ''}`}>
+                  {m}x
+                </span>
               </div>
             );
           })}
         </div>
 
-        {/* WIN OVERLAY POPUP */}
+        {/* WIN POPUP */}
         {showCoins && (
           <div className="absolute inset-0 z-20 pointer-events-none flex justify-center items-center bg-black/85 rounded-2xl">
             <div className="text-center bg-gradient-to-b from-yellow-400 via-amber-500 to-amber-700 p-4 rounded-2xl border-2 border-yellow-200 shadow-[0_0_30px_rgba(245,158,11,1)] animate-bounce">
@@ -227,16 +251,16 @@ export default function PixiSlotGame({ balance = 1000, onUpdateBalance, onClose 
         )}
       </div>
 
-      {/* 5. BOTTOM WIN DISPLAY */}
+      {/* 5. WIN DISPLAY */}
       <div className="my-2 bg-stone-900/90 py-1.5 px-4 rounded-xl border border-amber-500/30 flex justify-between items-center">
         <span className="text-amber-400 font-extrabold text-xs tracking-wider">WIN</span>
         <span className="text-white font-black text-base">৳ {winAmount.toFixed(2)}</span>
       </div>
 
-      {/* 6. BOTTOM CONTROL BAR */}
+      {/* 6. CONTROL BAR */}
       <div className="flex items-center justify-between gap-2">
         
-        {/* BET BUTTONS */}
+        {/* BET ADJUSTMENT */}
         <div className="flex items-center bg-stone-900 p-1 rounded-xl border border-amber-500/40">
           <button 
             onClick={() => { playSound('click'); setBet(prev => Math.max(10, prev - 10)); }}
