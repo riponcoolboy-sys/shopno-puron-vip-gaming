@@ -1,8 +1,26 @@
 // @ts-nocheck
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
-export default function PixiSlotGame(props: any) {
-  // 💥 Exact LocalStorage Key Sync with shopno_puron_wallet (1500 Tk Sync)
+interface PixiSlotGameProps {
+  balance?: number;
+  onUpdateBalance?: (amount: number) => void;
+  onClose?: () => void;
+}
+
+const SYMBOLS = [
+  { id: 'garuda', img: '/images/garuda.png', payout: 50 },
+  { id: 'wild', img: '/images/wild.png', payout: 30 },
+  { id: 'crown', img: '/images/crown.png', payout: 20 },
+  { id: 'ring', img: '/images/ring.png', payout: 15 },
+  { id: 'red-gem', img: '/images/red-gem.png', payout: 10 },
+  { id: 'green-gem', img: '/images/green-gem.png', payout: 5 },
+  { id: 'blue-gem', img: '/images/blue-gem.png', payout: 2 },
+];
+
+const MULTIPLIERS = [1, 2, 3, 5, 10];
+
+export default function PixiSlotGame({ balance = 1000, onUpdateBalance, onClose }: PixiSlotGameProps) {
+  // 💥 Direct LocalStorage Sync Fix (shopno_puron_wallet)
   const [currentBalance, setCurrentBalance] = useState<number>(() => {
     try {
       const walletObjStr = localStorage.getItem('shopno_puron_wallet');
@@ -14,10 +32,8 @@ export default function PixiSlotGame(props: any) {
       }
     } catch (e) {}
 
-    if (typeof props.balance === 'number' && props.balance > 0) return props.balance;
-    if (typeof props.wallet === 'number' && props.wallet > 0) return props.wallet;
-
-    return 500;
+    if (typeof balance === 'number' && balance > 0) return balance;
+    return 1000;
   });
 
   const [bet, setBet] = useState(10);
@@ -25,30 +41,16 @@ export default function PixiSlotGame(props: any) {
   const [isAutoSpin, setIsAutoSpin] = useState(false);
   const [winAmount, setWinAmount] = useState(0);
   const [activeMultiplier, setActiveMultiplier] = useState(1);
+  const [showCoins, setShowCoins] = useState(false);
 
-  const containerRef = useRef<HTMLDivElement>(null);
-  const appRef = useRef<any>(null);
-  const reelsRef = useRef<any[]>([]);
+  const isAutoSpinRef = useRef(isAutoSpin);
+  isAutoSpinRef.current = isAutoSpin;
 
-  // LocalStorage Event Listener for Real-time Wallet Updates
-  useEffect(() => {
-    const syncWallet = () => {
-      try {
-        const walletObjStr = localStorage.getItem('shopno_puron_wallet');
-        if (walletObjStr) {
-          const parsed = JSON.parse(walletObjStr);
-          if (typeof parsed.balance === 'number') {
-            setCurrentBalance(parsed.balance);
-          }
-        }
-      } catch (e) {}
-    };
+  const [grid, setGrid] = useState<string[]>(() => 
+    Array(9).fill(0).map(() => SYMBOLS[Math.floor(Math.random() * SYMBOLS.length)].img)
+  );
 
-    window.addEventListener('storage', syncWallet);
-    return () => window.removeEventListener('storage', syncWallet);
-  }, []);
-
-  // 🔥 Sync balance update directly to shopno_puron_wallet
+  // 🔥 Helper to update wallet in state and LocalStorage
   const updateWallet = (delta: number) => {
     setCurrentBalance((prev) => {
       const nextBal = Math.max(0, prev + delta);
@@ -61,272 +63,262 @@ export default function PixiSlotGame(props: any) {
         window.dispatchEvent(new Event('storage'));
       } catch (e) {}
 
-      if (typeof props.onUpdateBalance === 'function') props.onUpdateBalance(delta);
-      if (typeof props.updateBalance === 'function') props.updateBalance(delta);
+      if (onUpdateBalance) onUpdateBalance(delta);
       return nextBal;
     });
   };
 
-  const SYMBOLS = [
-    { name: 'wild', image: '/images/wild.png', value: 10 },
-    { name: 'ring', image: 'https://img.icons8.com/emoji/96/000000/ring-emoji.png', value: 5 },
-    { name: 'ruby', image: 'https://img.icons8.com/emoji/96/000000/gem-stone-emoji.png', value: 4 },
-    { name: 'emerald', image: 'https://img.icons8.com/emoji/96/000000/emerald-emoji.png', value: 3 },
-    { name: 'sapphire', image: 'https://img.icons8.com/emoji/96/000000/diamond-with-a-dot-emoji.png', value: 2 },
-    { name: 'crown', image: 'https://img.icons8.com/emoji/96/000000/crown-emoji.png', value: 8 },
-  ];
-
-  useEffect(() => {
-    let isMounted = true;
-
-    const loadPixi = () => {
-      if (window.PIXI) {
-        if (isMounted) initGame();
-        return;
-      }
-      const script = document.createElement('script');
-      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pixi.js/7.2.4/pixi.min.js';
-      script.async = true;
-      script.onload = () => {
-        if (isMounted) initGame();
-      };
-      document.body.appendChild(script);
-    };
-
-    loadPixi();
-
-    return () => {
-      isMounted = false;
-      if (appRef.current) {
-        try {
-          appRef.current.destroy(true, { children: true, texture: true, baseTexture: true });
-        } catch (e) {}
-      }
-    };
-  }, []);
-
-  const initGame = () => {
-    if (!containerRef.current) return;
-    containerRef.current.innerHTML = '';
-
-    const app = new window.PIXI.Application({
-      width: 320,
-      height: 320,
-      backgroundColor: 0x070609,
-      resolution: window.devicePixelRatio || 1,
-      autoDensity: true,
-    });
-
-    containerRef.current.appendChild(app.view);
-    appRef.current = app;
-
-    const reelContainer = new window.PIXI.Container();
-    reelContainer.x = 10;
-    reelContainer.y = 10;
-    app.stage.addChild(reelContainer);
-
-    const REEL_WIDTH = 100;
-    const SYMBOL_SIZE = 100;
-
-    reelsRef.current = [];
-
-    for (let i = 0; i < 3; i++) {
-      const rc = new window.PIXI.Container();
-      rc.x = i * REEL_WIDTH;
-      reelContainer.addChild(rc);
-
-      const reel = {
-        container: rc,
-        symbols: [],
-        position: 0,
-        previousPosition: 0,
-      };
-
-      for (let j = 0; j < 4; j++) {
-        const symData = SYMBOLS[Math.floor(Math.random() * SYMBOLS.length)];
-        const texture = window.PIXI.Texture.from(symData.image);
-        const sprite = new window.PIXI.Sprite(texture);
-        sprite.width = SYMBOL_SIZE - 20;
-        sprite.height = SYMBOL_SIZE - 20;
-        sprite.x = 10;
-        sprite.y = j * SYMBOL_SIZE + 10;
-        sprite.symData = symData;
-
-        rc.addChild(sprite);
-        reel.symbols.push(sprite);
-      }
-      reelsRef.current.push(reel);
-    }
+  const playSound = (soundName: string) => {
+    try {
+      const audio = new Audio(`/sounds/${soundName}.mp3`);
+      audio.play().catch(() => {});
+    } catch (e) {}
   };
 
   const handleSpin = () => {
-    if (isSpinning || currentBalance < bet) return;
+    if (currentBalance < bet || isSpinning) {
+      setIsAutoSpin(false);
+      return;
+    }
 
+    playSound('click');
+    playSound('spin');
+    
+    // Deduct bet amount
+    const newBal = currentBalance - bet;
     updateWallet(-bet);
+
     setIsSpinning(true);
     setWinAmount(0);
+    setShowCoins(false);
 
-    let completedReels = 0;
+    let counter = 0;
+    const interval = setInterval(() => {
+      const randomGrid = Array(9).fill(0).map(() => 
+        SYMBOLS[Math.floor(Math.random() * SYMBOLS.length)].img
+      );
+      const randomMult = MULTIPLIERS[Math.floor(Math.random() * MULTIPLIERS.length)];
 
-    reelsRef.current.forEach((reel, i) => {
-      const targetPos = reel.position + 25 + Math.floor(Math.random() * 10);
-      const time = 1200 + i * 400;
+      setGrid(randomGrid);
+      setActiveMultiplier(randomMult);
+      counter++;
 
-      const startTime = Date.now();
-      const startPos = reel.position;
+      if (counter > 14) {
+        clearInterval(interval);
+        evaluateWin(randomGrid, randomMult, newBal);
+        setIsSpinning(false);
+      }
+    }, 90);
+  };
 
-      const animate = () => {
-        const now = Date.now();
-        const progress = Math.min(1, (now - startTime) / time);
+  const evaluateWin = (finalGrid: string[], multiplier: number, latestBal: number) => {
+    const lines = [
+      [0, 1, 2], [3, 4, 5], [6, 7, 8], 
+      [0, 3, 6], [1, 4, 7], [2, 5, 8], 
+      [0, 4, 8], [2, 4, 6]             
+    ];
 
-        reel.position = startPos + (targetPos - startPos) * easeOutBack(progress);
+    let baseWin = 0;
 
-        reel.symbols.forEach((sprite, j) => {
-          const y = ((reel.position + j) % 4) * 100;
-          sprite.y = y + 10;
-        });
+    lines.forEach(line => {
+      const s1 = finalGrid[line[0]];
+      const s2 = finalGrid[line[1]];
+      const s3 = finalGrid[line[2]];
 
-        if (progress < 1) {
-          requestAnimationFrame(animate);
-        } else {
-          completedReels++;
-          if (completedReels === 3) {
-            checkWin();
-            setIsSpinning(false);
-          }
+      const isWild1 = s1.includes('wild');
+      const isWild2 = s2.includes('wild');
+      const isWild3 = s3.includes('wild');
+
+      const matchBase = [s1, s2, s3].find(s => !s.includes('wild')) || s1;
+
+      if (
+        (s1 === matchBase || isWild1) &&
+        (s2 === matchBase || isWild2) &&
+        (s3 === matchBase || isWild3)
+      ) {
+        const symbolObj = SYMBOLS.find(s => matchBase.includes(s.id));
+        if (symbolObj) {
+          baseWin += bet * symbolObj.payout;
         }
-      };
-      animate();
+      }
     });
-  };
 
-  const easeOutBack = (x: number): number => {
-    const c1 = 1.70158;
-    const c3 = c1 + 1;
-    return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2);
-  };
+    if (baseWin > 0) {
+      const totalWin = baseWin * multiplier;
+      setWinAmount(totalWin);
+      
+      // Credit Win Amount
+      updateWallet(totalWin);
+      
+      setShowCoins(true);
+      playSound('fire');
+      playSound(totalWin >= bet * 15 ? 'big-win' : 'win');
 
-  const checkWin = () => {
-    const isWin = Math.random() > 0.5;
-    if (isWin) {
-      const win = bet * activeMultiplier * 2;
-      setWinAmount(win);
-      updateWallet(win);
+      setTimeout(() => setShowCoins(false), 2800);
     }
   };
 
   useEffect(() => {
-    let autoInterval: any;
-    if (isAutoSpin && !isSpinning && currentBalance >= bet) {
-      autoInterval = setTimeout(() => {
-        handleSpin();
-      }, 500);
+    let timer: any;
+    if (isAutoSpin && !isSpinning) {
+      timer = setTimeout(() => {
+        if (isAutoSpinRef.current) handleSpin();
+      }, 700);
     }
-    return () => clearTimeout(autoInterval);
-  }, [isAutoSpin, isSpinning, currentBalance, bet]);
+    return () => clearTimeout(timer);
+  }, [isAutoSpin, isSpinning]);
+
+  const handleClose = () => {
+    playSound('click');
+    setIsAutoSpin(false);
+    if (onClose) onClose();
+    else window.history.back();
+  };
 
   return (
-    <div className="relative w-full max-w-md mx-auto bg-[#0a080d] border-2 border-[#ff9900] rounded-2xl p-4 text-white shadow-2xl font-sans">
-      {/* Top Header / Balance Display */}
-      <div className="flex justify-between items-center mb-3">
-        <button
-          onClick={props.onClose}
-          className="bg-red-600 hover:bg-red-700 text-white px-3.5 py-1.5 rounded-lg text-xs font-black transition flex items-center gap-1 shadow-lg"
+    <div className="w-full max-w-md mx-auto bg-stone-950 border-4 border-amber-600 rounded-3xl p-3 text-white shadow-2xl relative overflow-hidden select-none font-sans">
+      
+      {/* 1. TOP BAR (BACK & WALLET) */}
+      <div className="flex justify-between items-center mb-2 bg-stone-900/90 p-2 rounded-2xl border border-amber-500/40">
+        <button 
+          onClick={handleClose}
+          className="px-3.5 py-1.5 bg-gradient-to-r from-red-700 to-red-900 hover:from-red-600 hover:to-red-800 text-white font-extrabold text-xs rounded-xl border border-red-500 active:scale-95 transition-all shadow-md flex items-center gap-1"
         >
-          ← Back
+          <span>←</span> Back
         </button>
-        <div className="flex items-center gap-2 bg-[#120e17] px-4 py-1.5 rounded-xl border border-[#ff9900]/60 shadow-inner">
-          <span className="text-[#ff9900] font-black text-xs tracking-wider">WALLET</span>
-          <span className="text-lg font-black text-amber-300">৳{currentBalance}</span>
+
+        <div className="flex items-center gap-2 bg-black/70 px-3.5 py-1 rounded-xl border border-amber-500/40">
+          <span className="text-base">💰</span>
+          <div>
+            <p className="text-[9px] uppercase font-bold text-amber-400 leading-none">Wallet</p>
+            <p className="text-sm font-black text-amber-300 leading-tight">৳ {currentBalance.toLocaleString()}</p>
+          </div>
         </div>
       </div>
 
-      {/* Game Title Bar */}
-      <div className="text-center my-2 bg-gradient-to-r from-[#211403] via-[#472d07] to-[#211403] py-1.5 rounded-lg border border-[#ff9900]/40">
-        <h2 className="text-xs font-black tracking-widest text-[#ffaa00] uppercase drop-shadow-md">
-          FORTUNE GARUDA 500
-        </h2>
+      {/* 2. ANIMATED GARUDA MASCOT */}
+      <div className="relative flex justify-center items-center h-44 overflow-hidden -my-1">
+        <div className="absolute w-44 h-44 bg-amber-500/20 rounded-full blur-3xl animate-pulse" />
+        <img 
+          src="/images/garuda.gif" 
+          alt="Animated Garuda" 
+          className="w-48 h-48 object-contain z-10 mix-blend-screen drop-shadow-[0_0_25px_rgba(245,158,11,0.9)]"
+        />
       </div>
 
-      {/* Main Pixi Canvas Frame + Multipliers Sidebar */}
-      <div className="relative bg-[#040305] border-2 border-[#ff9900]/40 rounded-xl p-2 my-3 flex items-center justify-between gap-2 overflow-hidden min-h-[330px]">
-        {/* Canvas Display */}
-        <div className="flex-1 flex justify-center items-center">
-          <div ref={containerRef} className="rounded-lg overflow-hidden shadow-2xl" />
-        </div>
+      {/* 3. GAME TITLE HEADER */}
+      <div className="text-center bg-gradient-to-r from-amber-900/80 via-yellow-700/80 to-amber-900/80 py-1.5 rounded-t-xl border-t-2 border-x-2 border-amber-400 mb-0.5">
+        <h2 className="text-amber-200 font-black text-xs tracking-widest uppercase drop-shadow">FORTUNE GARUDA 500</h2>
+      </div>
 
-        {/* Right Multipliers Panel */}
-        <div className="flex flex-col justify-between h-[300px] py-1 z-10">
-          {[1, 2, 3, 5, 10].map((m) => (
-            <button
-              key={m}
-              onClick={() => setActiveMultiplier(m)}
-              className={`px-2.5 py-1.5 rounded-lg text-xs font-black transition ${
-                activeMultiplier === m
-                  ? 'bg-gradient-to-r from-[#ff9900] to-yellow-400 text-black shadow-lg shadow-orange-500/50 scale-105 border border-white'
-                  : 'bg-black/80 text-amber-500 border border-amber-500/30 hover:border-amber-400'
-              }`}
+      {/* 4. MAIN GAME BOARD (3x3 REELS + RIGHT MULTIPLIER COLUMN) */}
+      <div className="flex gap-1.5 bg-stone-900 p-2 rounded-b-2xl border-2 border-amber-500/60 relative">
+        
+        {/* LEFT: 3x3 REEL GRID */}
+        <div className="grid grid-cols-3 gap-1.5 flex-1">
+          {grid.map((imgSrc, idx) => (
+            <div 
+              key={idx} 
+              className="aspect-square bg-gradient-to-b from-stone-950 to-stone-900 border-2 border-amber-500/40 rounded-xl flex items-center justify-center p-2 shadow-inner overflow-hidden relative"
             >
-              {m}x
-            </button>
+              <img 
+                src={imgSrc} 
+                alt="symbol" 
+                className={`w-full h-full object-contain mix-blend-screen transition-all ${isSpinning ? 'animate-pulse opacity-60 scale-95' : 'opacity-100 scale-100'}`}
+              />
+            </div>
           ))}
         </div>
-      </div>
 
-      {/* Win Banner */}
-      <div className="bg-[#120e17] border border-[#ff9900]/30 rounded-xl p-2.5 mb-3 flex justify-between items-center px-4 shadow-inner">
-        <span className="text-xs font-black text-amber-400 tracking-wider">WIN</span>
-        <span className="text-xl font-black text-green-400">৳{winAmount.toFixed(2)}</span>
-      </div>
+        {/* RIGHT: MULTIPLIER REEL (2x, 3x, 1x, 5x, 10x) */}
+        <div className="w-14 flex flex-col justify-between bg-stone-950 p-1 rounded-xl border border-amber-500/30">
+          {MULTIPLIERS.map((m) => {
+            const isActive = activeMultiplier === m;
+            return (
+              <div 
+                key={m} 
+                className={`py-1 rounded-lg text-center font-black text-xs border transition-all ${
+                  isActive 
+                    ? 'bg-gradient-to-r from-amber-400 to-yellow-500 text-black border-yellow-200 scale-105 shadow-[0_0_10px_rgba(251,191,36,0.8)]' 
+                    : 'bg-stone-900 text-amber-500/60 border-amber-500/20 opacity-70'
+                }`}
+              >
+                {m}x
+              </div>
+            );
+          })}
+        </div>
 
-      {/* Spin and Controls Footer */}
-      <div className="space-y-2">
-        <div className="flex justify-between items-center bg-[#120e17] p-2 rounded-xl border border-white/5">
-          <div className="flex items-center gap-1 bg-black/60 px-2 py-1 rounded-lg border border-amber-500/20">
-            <button
-              onClick={() => setBet(Math.max(10, bet - 10))}
-              disabled={isSpinning}
-              className="w-8 h-8 bg-[#ff9900] text-black font-black rounded-lg hover:bg-amber-400 active:scale-95 disabled:opacity-50 text-base"
-            >
-              -
-            </button>
-            <div className="text-center px-3">
-              <span className="text-[10px] text-gray-400 block -mb-1">BET</span>
-              <span className="font-black text-base text-amber-300">৳{bet}</span>
+        {/* WIN OVERLAY POPUP */}
+        {showCoins && (
+          <div className="absolute inset-0 z-20 pointer-events-none flex justify-center items-center bg-black/85 rounded-2xl">
+            <div className="text-center bg-gradient-to-b from-yellow-400 via-amber-500 to-amber-700 p-4 rounded-2xl border-2 border-yellow-200 shadow-[0_0_30px_rgba(245,158,11,1)] animate-bounce">
+              <p className="text-black font-black text-2xl tracking-wider drop-shadow">🔥 WIN x{activeMultiplier}! 🔥</p>
+              <p className="text-white text-2xl font-black mt-1 drop-shadow">৳ {winAmount}</p>
             </div>
-            <button
-              onClick={() => setBet(bet + 10)}
-              disabled={isSpinning}
-              className="w-8 h-8 bg-[#ff9900] text-black font-black rounded-lg hover:bg-amber-400 active:scale-95 disabled:opacity-50 text-base"
-            >
-              +
-            </button>
           </div>
+        )}
+      </div>
 
-          <button
-            onClick={() => setIsAutoSpin(!isAutoSpin)}
-            className={`px-4 py-2 rounded-lg text-xs font-black tracking-wider transition border ${
-              isAutoSpin
-                ? 'bg-red-600 text-white border-red-400 animate-pulse'
-                : 'bg-slate-800 text-amber-400 border-amber-500/30'
-            }`}
+      {/* 5. BOTTOM WIN DISPLAY */}
+      <div className="my-2 bg-stone-900/90 py-1.5 px-4 rounded-xl border border-amber-500/30 flex justify-between items-center">
+        <span className="text-amber-400 font-extrabold text-xs tracking-wider">WIN</span>
+        <span className="text-white font-black text-base">৳ {winAmount.toFixed(2)}</span>
+      </div>
+
+      {/* 6. BOTTOM CONTROL BAR */}
+      <div className="flex items-center justify-between gap-2">
+        
+        {/* BET BUTTONS */}
+        <div className="flex items-center bg-stone-900 p-1 rounded-xl border border-amber-500/40">
+          <button 
+            onClick={() => { playSound('click'); setBet(prev => Math.max(10, prev - 10)); }}
+            className="w-7 h-7 bg-stone-800 border border-amber-500/40 rounded-lg font-black text-sm text-amber-400 active:scale-90"
           >
-            AUTO
+            -
+          </button>
+          <div className="px-2 text-center">
+            <p className="text-[8px] uppercase text-gray-400 font-bold">BET</p>
+            <p className="font-extrabold text-xs text-amber-300">৳{bet}</p>
+          </div>
+          <button 
+            onClick={() => { playSound('click'); setBet(prev => prev + 10); }}
+            className="w-7 h-7 bg-stone-800 border border-amber-500/40 rounded-lg font-black text-sm text-amber-400 active:scale-90"
+          >
+            +
           </button>
         </div>
 
+        {/* SPIN BUTTON */}
         <button
           onClick={handleSpin}
-          disabled={isSpinning || currentBalance < bet}
-          className={`w-full py-3.5 rounded-xl text-xl font-black tracking-widest uppercase transition-all shadow-xl ${
+          disabled={isSpinning || currentBalance < bet || isAutoSpin}
+          className={`flex-1 py-3 rounded-2xl font-black text-lg tracking-widest shadow-xl border-2 transition-all ${
             isSpinning || currentBalance < bet
-              ? 'bg-gray-700 cursor-not-allowed text-gray-400 border border-gray-600'
-              : 'bg-gradient-to-r from-[#ff9900] via-[#ffd700] to-[#ff9900] text-black hover:brightness-110 active:scale-98 border-2 border-amber-200 shadow-orange-500/20'
+              ? 'bg-stone-800 text-stone-500 border-stone-700 cursor-not-allowed'
+              : 'bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-600 text-black border-yellow-200 hover:brightness-110 active:scale-95 shadow-amber-500/30'
           }`}
         >
-          {isSpinning ? 'SPINNING...' : 'SPIN'}
+          {isSpinning ? 'SPIN...' : 'SPIN'}
         </button>
+
+        {/* AUTO SPIN */}
+        <button
+          onClick={() => {
+            playSound('click');
+            setIsAutoSpin(!isAutoSpin);
+          }}
+          className={`px-3 py-3 rounded-2xl font-extrabold text-xs border transition-all ${
+            isAutoSpin 
+              ? 'bg-red-600 text-white border-red-400 animate-pulse shadow-lg shadow-red-600/40' 
+              : 'bg-stone-900 text-amber-400 border-amber-500/40 hover:bg-stone-800'
+          }`}
+        >
+          {isAutoSpin ? 'STOP' : 'AUTO'}
+        </button>
+
       </div>
+
     </div>
   );
 }
