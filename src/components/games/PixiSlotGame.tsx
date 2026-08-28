@@ -67,7 +67,8 @@ export default function PixiSlotGame(props: any) {
       const nextBal = Math.max(0, prev + delta);
       
       localStorage.setItem('user_balance', nextBal.toString());
-      
+      localStorage.setItem('wallet', nextBal.toString());
+    localStorage.setItem('user_wallet', nextBal.toString());
       try {
         const userStr = localStorage.getItem('user');
         if (userStr) {

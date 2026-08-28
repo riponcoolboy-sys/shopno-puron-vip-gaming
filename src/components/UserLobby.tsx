@@ -426,7 +426,7 @@ export default function UserLobby({
       {selectedGame && (
         <GameModal
           game={selectedGame}
-          wallet={wallet}
+          balance={wallet}
           userId={currentUser?._id || currentUser?.id || currentUser?.username}
           onClose={() => setSelectedGame(null)}
           onUpdateBalance={onUpdateBalance}
