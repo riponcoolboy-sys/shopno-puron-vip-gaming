@@ -12,7 +12,7 @@ export const GAMES_DATA: GameItem[] = [
     id: 'garuda-slot',
     title: 'Garuda Fire Slot',
     category: 'Slots',
-    image: '/images/garuda.gif',
+    image: '/images/garuda.png',
     provider: 'VIP Casino',
     popular: true,
   }
