@@ -353,7 +353,7 @@ export default function UserLobby({
                     {/* Game Thumbnail */}
                     <div className="relative aspect-[4/3] rounded-lg overflow-hidden mb-1.5 bg-gradient-to-br from-gray-900 via-gray-800 to-black">
                       <img
-                        src={game.coverImage}
+                        src={game.image || game.coverImage}
                         alt={game.title}
                         loading="lazy"
                         referrerPolicy="no-referrer"
