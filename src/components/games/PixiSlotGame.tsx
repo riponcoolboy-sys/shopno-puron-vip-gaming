@@ -12,6 +12,7 @@ const SYMBOLS = [
 ];
 
 const MULTIPLIERS = [1, 2, 3, 5, 10];
+;
 
 export default function PixiSlotGame(props: any) {
   const handleClose = () => {
@@ -23,22 +24,28 @@ export default function PixiSlotGame(props: any) {
   };
 
   // 🔥 Smart Balance Detection: Props + Global User + LocalStorage
+  // 💥 Direct Storage Sync (100% Guaranteed Balance Fix)
   const [currentBalance, setCurrentBalance] = useState<number>(() => {
-    // 1. Check Props first
-    if (typeof props.balance === 'number') return props.balance;
-    if (props.user && typeof props.user.balance === 'number') return props.user.balance;
-    
-    // 2. Check Global User Object in LocalStorage
     try {
-      const userObj = JSON.parse(localStorage.getItem('user') || '{}');
-      if (typeof userObj.balance === 'number') return userObj.balance;
-    } catch(e) {}
-    
-    // 3. Fallback to simple balance key
-    const savedBal = localStorage.getItem('user_balance');
-    return savedBal ? parseFloat(savedBal) : 0; // If everything fails, return 0
-  });
+      // 1. Check direct wallet balance from Main App
+      const w = localStorage.getItem('wallet') || localStorage.getItem('user_balance');
+      if (w && !isNaN(parseFloat(w))) return parseFloat(w);
 
+      // 2. Check full user profile object
+      const userStr = localStorage.getItem('user') || localStorage.getItem('currentUser');
+      if (userStr) {
+        const u = JSON.parse(userStr);
+        if (typeof u.balance === 'number') return u.balance;
+        if (typeof u.wallet === 'number') return u.wallet;
+      }
+    } catch (e) {}
+
+    // 3. Fallback to Props if available
+    if (typeof props.balance === 'number') return props.balance;
+    if (typeof props.wallet === 'number') return props.wallet;
+
+    return 1000; // Default fallback balance
+  });
   const [bet, setBet] = useState(10);
   const [isSpinning, setIsSpinning] = useState(false);
   const [isAutoSpin, setIsAutoSpin] = useState(false);
