@@ -108,12 +108,13 @@ export default function UserLobby({
   useEffect(() => {
     try {
       if (typeof wallet?.balance === 'number') {
+        localStorage.setItem('SHOPNO_PURON_BALANCE_V2', String(wallet.balance));
         localStorage.setItem('shopno_puron_balance', String(wallet.balance));
         localStorage.setItem('user_balance', String(wallet.balance));
       }
       if (currentUser && currentUser.username) {
         localStorage.setItem(
-          'shopno_puron_user_data',
+          'SHOPNO_PURON_USER_V2',
           JSON.stringify({ ...currentUser, balance: wallet?.balance ?? currentUser.balance ?? 0 })
         );
       }

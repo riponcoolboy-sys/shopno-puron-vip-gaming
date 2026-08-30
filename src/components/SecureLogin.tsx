@@ -201,6 +201,7 @@ export default function SecureLogin({ onLoginSuccess, onOpenSupport }: SecureLog
         localStorage.setItem('user_token', data.token);
         localStorage.setItem('auth_token', data.token);
         localStorage.setItem('user_role', 'admin');
+        localStorage.setItem('SHOPNO_PURON_USER_V2', JSON.stringify(adminUser));
         localStorage.setItem('user_profile', JSON.stringify(adminUser));
 
         setShowAdminModal(false);

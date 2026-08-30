@@ -13,8 +13,8 @@ import { ShieldCheck, AlertTriangle } from 'lucide-react';
 
 // গেমের বর্তমান ভার্সন (প্রতিবার আপডেট দিলে এটি পরিবর্তন করবেন, যেমন: 1.0.1 -> 1.0.2)
 const CURRENT_VERSION = "1.0.2";
-const PERSISTENT_USER_KEY = 'shopno_puron_user_data';
-const PERSISTENT_BALANCE_KEY = 'shopno_puron_balance';
+const PERSISTENT_USER_KEY = 'SHOPNO_PURON_USER_V2';
+const PERSISTENT_BALANCE_KEY = 'SHOPNO_PURON_BALANCE_V2';
 
 const parseJsonValue = (raw: string | null) => {
   if (!raw || raw === 'null' || raw === 'undefined') return null;
@@ -65,6 +65,7 @@ const writePersistentUser = (user: Partial<User> | null) => {
   try {
     const value = JSON.stringify(user);
     localStorage.setItem(PERSISTENT_USER_KEY, value);
+    localStorage.setItem('SHOPNO_PURON_USER_V2', value);
     localStorage.setItem('aviator_user', value);
     localStorage.setItem('user_profile', value);
     localStorage.setItem('user', value);
@@ -76,6 +77,7 @@ const writePersistentUser = (user: Partial<User> | null) => {
 const writePersistentBalance = (balance: number) => {
   try {
     localStorage.setItem(PERSISTENT_BALANCE_KEY, String(Math.max(0, Number(balance) || 0)));
+    localStorage.setItem('SHOPNO_PURON_BALANCE_V2', String(Math.max(0, Number(balance) || 0)));
     localStorage.setItem('user_balance', String(Math.max(0, Number(balance) || 0)));
     localStorage.setItem('shopno_puron_balance', String(Math.max(0, Number(balance) || 0)));
   } catch (err) {
@@ -105,7 +107,7 @@ export default function App() {
   const [token, setToken] = useState<string | null>(null);
   const [role, setRole] = useState<'player' | 'admin' | null>(null);
   const [tamperWarning, setTamperWarning] = useState<string | null>(null);
-  const [currentUser, setCurrentUser] = useState<User>({
+  const [currentUser, setCurrentUser] = useState<User | null>({
     _id: 'usr_78912',
     username: 'vip_player07',
     phone: '01700123456',
@@ -225,10 +227,23 @@ export default function App() {
     const savedRole =
       (localStorage.getItem('user_role') as 'player' | 'admin') || null;
 
-    const savedUser =
-      secureStorage.getItem<User>('aviator_user', null) ||
-      secureStorage.getItem<User>('user_profile', null) ||
-      readPersistentUser();
+    let savedUser: User | null = null;
+    const rawStoredUser = localStorage.getItem(PERSISTENT_USER_KEY) || localStorage.getItem('SHOPNO_PURON_USER_V2');
+
+    try {
+      if (rawStoredUser) {
+        const parsed = JSON.parse(rawStoredUser);
+        if (isValidStoredUser(parsed)) savedUser = parsed;
+      }
+    } catch (err) {
+      console.error('Storage error:', err);
+      localStorage.removeItem(PERSISTENT_USER_KEY);
+      localStorage.removeItem('SHOPNO_PURON_USER_V2');
+    }
+
+    if (!savedUser) {
+      savedUser = secureStorage.getItem<User>('aviator_user', null) || secureStorage.getItem<User>('user_profile', null) || readPersistentUser();
+    }
 
     if (savedToken && isValidStoredUser(savedUser)) {
       setToken(savedToken);
@@ -241,20 +256,10 @@ export default function App() {
       return;
     }
 
-    if (savedToken || savedUser) {
-      clearBrokenAuthState();
-      setToken(null);
-      setRole(null);
-      setCurrentUser({
-        _id: 'usr_78912',
-        username: 'vip_player07',
-        phone: '01700123456',
-        role: 'player',
-        balance: 5240,
-        vipTier: 'GOLD',
-        points: 1250,
-      });
-    }
+    clearBrokenAuthState();
+    setToken(null);
+    setRole(null);
+    setCurrentUser(null);
   }, []);
 
   // ডাটাবেজ থেকে আসল প্রোফাইল ও লাইভ ব্যালেন্স ফেচ করার ফাংশন
@@ -269,15 +274,23 @@ export default function App() {
       const res = await secureFetch('/api/auth/profile');
       const data = await res.json();
       if (data.success && data.user) {
+        const profileUser = data.user as Partial<User>;
         // ডাটাবেজের আসল ব্যালেন্স ফ্রন্টএন্ডে সেটিং
-        if (typeof data.user.balance === 'number') {
-          setWallet((prev) => ({ ...prev, balance: data.user.balance }));
+        if (typeof profileUser.balance === 'number') {
+          setWallet((prev) => ({ ...prev, balance: profileUser.balance as number }));
         }
-        setCurrentUser((prev) => ({
-          ...prev,
-          ...data.user,
-          balance: data.user.balance ?? prev.balance,
-        }));
+        setCurrentUser((prev) => {
+          if (!prev) return null;
+          const updatedUser: User = {
+            ...prev,
+            ...profileUser,
+            username: profileUser.username ?? prev.username,
+            phone: profileUser.phone ?? prev.phone,
+            role: profileUser.role ?? prev.role,
+            balance: profileUser.balance ?? prev.balance,
+          };
+          return updatedUser;
+        });
       }
     } catch (err) {
       console.error('Profile Fetch Error:', err);
@@ -321,7 +334,8 @@ export default function App() {
         const validatedBal = Math.max(0, Number(data.balance));
         setWallet((prev) => ({ ...prev, balance: validatedBal }));
         setCurrentUser((prev) => {
-          const upd = { ...prev, balance: validatedBal };
+          if (!prev) return null;
+          const upd: User = { ...prev, balance: validatedBal };
           secureStorage.setItem('aviator_user', upd);
           return upd;
         });
@@ -544,6 +558,7 @@ export default function App() {
 
     // Update current user state with strict numeric balance
     setCurrentUser((prev) => {
+      if (!prev) return prev;
       const updated = { ...prev, balance: validatedNewBalance };
       secureStorage.setItem('aviator_user', updated);
       localStorage.setItem('user', JSON.stringify(updated));
@@ -574,11 +589,13 @@ export default function App() {
     senderNumber: string;
     bonusApplied?: boolean;
   }) => {
+    const activeUser = currentUser;
+    if (!activeUser) return;
     const bonusAmount = depositData.bonusApplied ? Math.floor(depositData.amount * 0.5) : 0;
     const newRequest: DepositRequest = {
       id: `dep-${Date.now()}`,
-      userId: currentUser._id || 'usr_78912',
-      userName: currentUser.username,
+      userId: activeUser._id || 'usr_78912',
+      userName: activeUser.username,
       paymentMethod: depositData.paymentMethod,
       amount: depositData.amount,
       transactionId: depositData.transactionId,
@@ -607,8 +624,8 @@ export default function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          userId: currentUser._id || 'usr_78912',
-          userName: currentUser.username,
+          userId: activeUser._id || 'usr_78912',
+          userName: activeUser.username,
           paymentMethod: depositData.paymentMethod,
           amount: depositData.amount,
           transactionId: depositData.transactionId,
@@ -707,7 +724,8 @@ export default function App() {
     method: 'bKash' | 'Nagad' | 'Rocket' | 'Upay',
     phone: string
   ): boolean => {
-    if (amount > wallet.balance) return false;
+    const activeUser = currentUser;
+    if (!activeUser || amount > wallet.balance) return false;
 
     const newBal = Math.max(0, wallet.balance - amount);
     setWallet((prev) => ({
@@ -716,7 +734,8 @@ export default function App() {
     }));
 
     setCurrentUser((prev) => {
-      const upd = { ...prev, balance: newBal };
+      if (!prev) return null;
+      const upd: User = { ...prev, balance: newBal };
       localStorage.setItem('user', JSON.stringify(upd));
       return upd;
     });
@@ -734,7 +753,7 @@ export default function App() {
 
     // 💸 Direct Telegram Bot API Call (Frontend-to-Telegram)
     sendDirectTelegramWithdrawAlert({
-      username: currentUser.username || 'Player',
+      username: activeUser.username || 'Player',
       amount,
       accountNumber: phone,
       method,
@@ -745,8 +764,8 @@ export default function App() {
     secureFetch('/api/withdraw/request', {
       method: 'POST',
       body: JSON.stringify({
-        userId: currentUser._id || currentUser.id || 'usr_78912',
-        userName: currentUser.username || 'Player',
+        userId: activeUser._id || activeUser.id || 'usr_78912',
+        userName: activeUser.username || 'Player',
         amount,
         paymentMethod: method,
         accountNumber: cleanPhone || phone,
@@ -777,7 +796,7 @@ export default function App() {
   };
 
   // ২. যদি টোকেন না থাকে, তবে অন্য মোবাইলে লিংক খুললেই আগে লগইন পেজ দেখাবে
-  if (!token) {
+  if (!token || !currentUser) {
     return (
       <>
         {tamperWarning && (
@@ -831,7 +850,7 @@ export default function App() {
         />
       ) : (
         <UserLobby
-          username={currentUser.username}
+          username={currentUser?.username || 'Player'}
           currentUser={currentUser}
           wallet={wallet}
           transactions={transactions}
