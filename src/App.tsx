@@ -478,6 +478,7 @@ export default function App() {
         localStorage.getItem('auth_token') ||
         `tok_${Date.now()}`;
       nextUser = {
+        _id: `usr_${Date.now()}`,
         username: sanitizeInput.username(user),
         phone: '01700123456',
         role: resolvedRole,
@@ -485,6 +486,13 @@ export default function App() {
         vipTier: resolvedRole === 'admin' ? 'DIAMOND' : 'GOLD',
       };
     } else {
+      if (!isValidStoredUser(user)) {
+        clearBrokenAuthState();
+        setToken(null);
+        setRole(null);
+        setCurrentUser(null);
+        return;
+      }
       resolvedRole = user.role || 'player';
       tok =
         user.token ||
@@ -495,7 +503,7 @@ export default function App() {
       nextUser = { ...user, role: resolvedRole, balance: user.balance ?? wallet.balance ?? 5240 };
     }
 
-    if (nextUser) {
+    if (nextUser && isValidStoredUser(nextUser)) {
       setCurrentUser(nextUser);
       if (typeof nextUser.balance === 'number') {
         setWallet((prev) => ({ ...prev, balance: nextUser.balance }));
@@ -505,6 +513,12 @@ export default function App() {
       writePersistentUser(nextUser);
       writePersistentBalance(nextUser.balance ?? wallet.balance ?? 5240);
       localStorage.setItem('user_profile', JSON.stringify(nextUser));
+    } else {
+      clearBrokenAuthState();
+      setToken(null);
+      setRole(null);
+      setCurrentUser(null);
+      return;
     }
 
     secureStorage.setItem('user_token', tok);
