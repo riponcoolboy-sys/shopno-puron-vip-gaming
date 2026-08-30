@@ -464,11 +464,6 @@ export default function App() {
         balance: resolvedRole === 'admin' ? 50000 : 5240,
         vipTier: resolvedRole === 'admin' ? 'DIAMOND' : 'GOLD',
       };
-      setCurrentUser(nextUser);
-      secureStorage.setItem('aviator_user', nextUser);
-      secureStorage.setItem('user_profile', nextUser);
-      writePersistentUser(nextUser);
-      writePersistentBalance(nextUser.balance ?? 5240);
     } else {
       resolvedRole = user.role || 'player';
       tok =
@@ -478,8 +473,11 @@ export default function App() {
         localStorage.getItem('auth_token') ||
         `tok_${Date.now()}`;
       nextUser = { ...user, role: resolvedRole, balance: user.balance ?? wallet.balance ?? 5240 };
+    }
+
+    if (nextUser) {
       setCurrentUser(nextUser);
-      if (nextUser.balance !== undefined) {
+      if (typeof nextUser.balance === 'number') {
         setWallet((prev) => ({ ...prev, balance: nextUser.balance }));
       }
       secureStorage.setItem('aviator_user', nextUser);
