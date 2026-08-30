@@ -98,6 +98,40 @@ const writePersistentBalance = (balance: number) => {
   }
 };
 
+class LoggedInRenderBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean }
+> {
+  state = { hasError: false };
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error) {
+    console.error('Logged-in view render error:', error);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-[#050515] px-6 text-center text-white">
+          <p className="text-sm font-bold text-amber-300">সেশনটি লোড করা যায়নি</p>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="rounded-xl bg-amber-500 px-4 py-2 text-sm font-black text-black"
+          >
+            আবার চেষ্টা করুন
+          </button>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
 export default function App() {
   // ভার্সন কন্ট্রোল এবং স্বয়ংক্রিয় ক্যাশ ক্লিয়ারিং লজিক
   useEffect(() => {
@@ -850,7 +884,8 @@ export default function App() {
 
   // ৩. রোল অনুযায়ী আলাদা ড্যাশবোর্ড দেখাবে
   return (
-    <div className="relative min-h-screen">
+    <LoggedInRenderBoundary>
+      <div className="relative min-h-screen">
       {tamperWarning && (
         <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50 bg-rose-950/95 border border-rose-500/50 text-rose-200 px-4 py-2.5 rounded-xl shadow-2xl flex items-center gap-2 text-xs font-semibold backdrop-blur-md animate-bounce">
           <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
@@ -894,6 +929,7 @@ export default function App() {
       {showSupportModal && (
         <SupportModal onClose={() => setShowSupportModal(false)} />
       )}
-    </div>
+      </div>
+    </LoggedInRenderBoundary>
   );
 }

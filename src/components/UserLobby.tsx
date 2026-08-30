@@ -1,5 +1,5 @@
 // @ts-nocheck
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Flame,
   Gamepad2,
@@ -89,6 +89,22 @@ export default function UserLobby({
   onClaimVipReward,
   onOpenAdmin,
 }: UserLobbyProps) {
+  const safeUsername = typeof username === 'string' && username.trim() ? username : 'Player';
+  const safeUser: User = {
+    ...currentUser,
+    _id: currentUser?._id || currentUser?.id || 'player-local',
+    username: typeof currentUser?.username === 'string' && currentUser.username.trim()
+      ? currentUser.username
+      : safeUsername,
+    phone: typeof currentUser?.phone === 'string' ? currentUser.phone : '',
+    role: currentUser?.role === 'admin' ? 'admin' : 'player',
+    balance: Number.isFinite(Number(currentUser?.balance)) ? Math.max(0, Number(currentUser.balance)) : 0,
+  };
+  const safeWallet: UserWallet = {
+    ...wallet,
+    balance: Number.isFinite(Number(wallet?.balance)) ? Math.max(0, Number(wallet.balance)) : safeUser.balance,
+  };
+
   // Category state for the active 15-game catalog.
   const [activeCategory, setActiveCategory] = useState<string>('hot');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -107,21 +123,21 @@ export default function UserLobby({
 
   useEffect(() => {
     try {
-      if (typeof wallet?.balance === 'number') {
-        localStorage.setItem('SHOPNO_PURON_BALANCE_V2', String(wallet.balance));
-        localStorage.setItem('shopno_puron_balance', String(wallet.balance));
-        localStorage.setItem('user_balance', String(wallet.balance));
+      if (typeof safeWallet.balance === 'number') {
+        localStorage.setItem('SHOPNO_PURON_BALANCE_V2', String(safeWallet.balance));
+        localStorage.setItem('shopno_puron_balance', String(safeWallet.balance));
+        localStorage.setItem('user_balance', String(safeWallet.balance));
       }
-      if (currentUser && currentUser.username) {
+      if (safeUser.username) {
         localStorage.setItem(
           'SHOPNO_PURON_USER_V2',
-          JSON.stringify({ ...currentUser, balance: wallet?.balance ?? currentUser.balance ?? 0 })
+          JSON.stringify({ ...safeUser, balance: safeWallet.balance })
         );
       }
     } catch (error) {
       console.warn('Lobby storage update failed:', error);
     }
-  }, [currentUser, wallet.balance]);
+  }, [safeUser, safeWallet.balance]);
 
   // Modals & Drawers States
   const [showSidebar, setShowSidebar] = useState<boolean>(false);
@@ -170,9 +186,9 @@ export default function UserLobby({
       <SidebarDrawer
         isOpen={showSidebar}
         onClose={() => setShowSidebar(false)}
-        currentUser={currentUser}
-        username={username}
-        wallet={wallet}
+        currentUser={safeUser}
+        username={safeUser.username}
+        wallet={safeWallet}
         isMuted={isMuted}
         onToggleMute={onToggleMute}
         onNavigateHome={() => {
@@ -240,7 +256,7 @@ export default function UserLobby({
             })}
 
             {/* Admin Switch */}
-            {currentUser.role === 'admin' && onOpenAdmin && (
+            {safeUser.role === 'admin' && onOpenAdmin && (
               <div className="pt-2">
                 <button
                   onClick={() => {
@@ -282,9 +298,9 @@ export default function UserLobby({
       <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
         {/* Top Header */}
         <Header
-          username={username}
-          currentUser={currentUser}
-          wallet={wallet}
+          username={safeUser.username}
+          currentUser={safeUser}
+          wallet={safeWallet}
           isMuted={isMuted}
           onToggleMute={onToggleMute}
           onOpenDeposit={() => setShowWallet(true)}
@@ -454,7 +470,7 @@ export default function UserLobby({
       {selectedGame && (
         <GameModal
           gameId={selectedGame.id}
-          balance={wallet.balance}
+          balance={safeWallet.balance}
           onClose={() => setSelectedGame(null)}
           onUpdateBalance={onUpdateBalance}
         />
@@ -464,11 +480,11 @@ export default function UserLobby({
       {showProfile && (
         <ProfileModal
           isOpen={showProfile}
-          user={currentUser || { username, _id: currentUser?._id || '88392' }}
-          balance={wallet.balance}
-          currentUser={currentUser}
-          username={username}
-          wallet={wallet}
+          user={safeUser}
+          balance={safeWallet.balance}
+          currentUser={safeUser}
+          username={safeUser.username}
+          wallet={safeWallet}
           transactions={transactions}
           onClose={() => setShowProfile(false)}
           onOpenDeposit={() => setShowWallet(true)}
@@ -484,10 +500,10 @@ export default function UserLobby({
       {showReferral && (
         <ReferralModal
           isOpen={showReferral}
-          userId={currentUser?._id || currentUser?.id || username || 'VIP123'}
-          currentUser={currentUser}
-          username={username}
-          wallet={wallet}
+          userId={safeUser._id || safeUser.id || safeUser.username || 'VIP123'}
+          currentUser={safeUser}
+          username={safeUser.username}
+          wallet={safeWallet}
           onClose={() => setShowReferral(false)}
           onOpenDeposit={() => setShowWallet(true)}
         />
