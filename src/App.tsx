@@ -13,6 +13,45 @@ import { ShieldCheck, AlertTriangle } from 'lucide-react';
 
 // গেমের বর্তমান ভার্সন (প্রতিবার আপডেট দিলে এটি পরিবর্তন করবেন, যেমন: 1.0.1 -> 1.0.2)
 const CURRENT_VERSION = "1.0.2";
+const PERSISTENT_USER_KEY = 'shopno_puron_user_data';
+const PERSISTENT_BALANCE_KEY = 'shopno_puron_balance';
+
+const readPersistentUser = () => {
+  try {
+    const direct = localStorage.getItem(PERSISTENT_USER_KEY);
+    if (direct) return JSON.parse(direct);
+  } catch {}
+
+  try {
+    const legacy = localStorage.getItem('aviator_user') || localStorage.getItem('user_profile') || localStorage.getItem('user');
+    if (legacy) return JSON.parse(legacy);
+  } catch {}
+
+  return null;
+};
+
+const writePersistentUser = (user: Partial<User> | null) => {
+  if (!user) return;
+  try {
+    const value = JSON.stringify(user);
+    localStorage.setItem(PERSISTENT_USER_KEY, value);
+    localStorage.setItem('aviator_user', value);
+    localStorage.setItem('user_profile', value);
+    localStorage.setItem('user', value);
+  } catch (err) {
+    console.warn('User persistence failed:', err);
+  }
+};
+
+const writePersistentBalance = (balance: number) => {
+  try {
+    localStorage.setItem(PERSISTENT_BALANCE_KEY, String(Math.max(0, Number(balance) || 0)));
+    localStorage.setItem('user_balance', String(Math.max(0, Number(balance) || 0)));
+    localStorage.setItem('shopno_puron_balance', String(Math.max(0, Number(balance) || 0)));
+  } catch (err) {
+    console.warn('Balance persistence failed:', err);
+  }
+};
 
 export default function App() {
   // ভার্সন কন্ট্রোল এবং স্বয়ংক্রিয় ক্যাশ ক্লিয়ারিং লজিক
@@ -159,9 +198,10 @@ export default function App() {
     const savedUser =
       secureStorage.getItem<User>('aviator_user', null) ||
       secureStorage.getItem<User>('user_profile', null) ||
+      readPersistentUser() ||
       (() => {
         try {
-          const raw = localStorage.getItem('aviator_user') || localStorage.getItem('user_profile');
+          const raw = localStorage.getItem('aviator_user') || localStorage.getItem('user_profile') || localStorage.getItem('user');
           return raw ? JSON.parse(raw) : null;
         } catch {
           return null;
@@ -173,8 +213,9 @@ export default function App() {
       setRole(savedRole || 'player');
       if (savedUser) {
         setCurrentUser(savedUser);
-        if (savedUser.balance !== undefined) {
+        if (typeof savedUser.balance === 'number') {
           setWallet((prev) => ({ ...prev, balance: savedUser.balance }));
+          writePersistentBalance(savedUser.balance);
         }
       }
     }
@@ -342,7 +383,14 @@ export default function App() {
   useEffect(() => {
     secureStorage.setItem('shopno_puron_wallet', wallet);
     localStorage.setItem('shopno_puron_wallet', JSON.stringify(wallet));
+    writePersistentBalance(wallet.balance);
   }, [wallet]);
+
+  useEffect(() => {
+    if (currentUser && currentUser.username) {
+      writePersistentUser(currentUser);
+    }
+  }, [currentUser]);
 
   useEffect(() => {
     secureStorage.setItem('shopno_payment_settings', paymentSettings);
@@ -405,6 +453,11 @@ export default function App() {
     localStorage.setItem('auth_token', tok);
     localStorage.setItem('user_role', resolvedRole);
 
+    if (typeof currentUser === 'object' && currentUser && currentUser.username) {
+      writePersistentUser(currentUser);
+      writePersistentBalance(Number(currentUser.balance) || wallet.balance);
+    }
+
     setToken(tok);
     setRole(resolvedRole);
   };
@@ -419,6 +472,11 @@ export default function App() {
     localStorage.removeItem('auth_token');
     localStorage.removeItem('user_role');
     localStorage.removeItem('user_profile');
+    localStorage.removeItem(PERSISTENT_USER_KEY);
+    localStorage.removeItem(PERSISTENT_BALANCE_KEY);
+    localStorage.removeItem('shopno_puron_balance');
+    localStorage.removeItem('user_balance');
+    localStorage.removeItem('user');
     setToken(null);
     setRole(null);
   };
@@ -453,6 +511,8 @@ export default function App() {
       const updated = { ...prev, balance: validatedNewBalance };
       secureStorage.setItem('aviator_user', updated);
       localStorage.setItem('user', JSON.stringify(updated));
+      writePersistentUser(updated);
+      writePersistentBalance(validatedNewBalance);
       return updated;
     });
 

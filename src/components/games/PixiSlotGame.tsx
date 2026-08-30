@@ -24,6 +24,10 @@ const SYMBOLS = [
 
 const MULTIPLIERS = [1, 2, 3, 5, 10];
 const RTP_TARGET = 0.96;
+const MIN_BET = 5;
+const BET_SEQUENCE = [5, 10, 20, 50, 100, 200, 500];
+const PERSISTENT_USER_KEY = 'shopno_puron_user_data';
+const PERSISTENT_BALANCE_KEY = 'shopno_puron_balance';
 
 const SYMBOL_WEIGHTS = {
   garuda: 0.015,
@@ -51,8 +55,16 @@ export default function PixiSlotGame({ balance, onUpdateBalance, onClose }: Pixi
     return !isNaN(num) && num >= 0 ? num : 0;
   };
 
-  const [currentBalance, setCurrentBalance] = useState<number>(() => getSafeBalance(balance));
-  const [bet, setBet] = useState(10);
+  const [currentBalance, setCurrentBalance] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      const storedBalance = Number(localStorage.getItem(PERSISTENT_BALANCE_KEY));
+      if (!isNaN(storedBalance) && storedBalance >= 0) {
+        return storedBalance;
+      }
+    }
+    return getSafeBalance(balance);
+  });
+  const [bet, setBet] = useState(MIN_BET);
   const [isSpinning, setIsSpinning] = useState(false);
   const [isAutoSpin, setIsAutoSpin] = useState(false);
   const [winAmount, setWinAmount] = useState(0);
@@ -69,6 +81,35 @@ export default function PixiSlotGame({ balance, onUpdateBalance, onClose }: Pixi
   const spinAudioRef = useRef<HTMLAudioElement | null>(null);
   const bgmAudioRef = useRef<HTMLAudioElement | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
+  const spinSessionRef = useRef(0);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const savedBalance = Number(localStorage.getItem(PERSISTENT_BALANCE_KEY));
+      if (!isNaN(savedBalance) && savedBalance >= 0) {
+        setCurrentBalance(savedBalance);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(PERSISTENT_BALANCE_KEY, String(currentBalance));
+      localStorage.setItem('user_balance', String(currentBalance));
+    }
+  }, [currentBalance]);
+
+  useEffect(() => {
+    try {
+      const storedUser = localStorage.getItem(PERSISTENT_USER_KEY);
+      if (storedUser) {
+        const parsedUser = JSON.parse(storedUser);
+        if (parsedUser && typeof parsedUser.balance === 'number') {
+          setCurrentBalance(Math.max(0, parsedUser.balance));
+        }
+      }
+    } catch {}
+  }, []);
 
   const isAutoSpinRef = useRef(isAutoSpin);
   isAutoSpinRef.current = isAutoSpin;
@@ -111,6 +152,56 @@ export default function PixiSlotGame({ balance, onUpdateBalance, onClose }: Pixi
     return cells;
   };
 
+  const buildNearMissGrid = () => {
+    const grid = buildWeightedGrid();
+    const linePatterns = [
+      [0, 1, 2], [3, 4, 5], [6, 7, 8],
+      [0, 3, 6], [1, 4, 7], [2, 5, 8],
+      [0, 4, 8], [2, 4, 6]
+    ];
+    const selectedLine = linePatterns[Math.floor(Math.random() * linePatterns.length)];
+    const targetSymbol = SYMBOLS[Math.floor(Math.random() * SYMBOLS.length)].img;
+    const missSymbol = SYMBOLS.filter((symbol) => symbol.img !== targetSymbol)[Math.floor(Math.random() * (SYMBOLS.length - 1))]?.img || targetSymbol;
+
+    selectedLine.forEach((idx, order) => {
+      if (order < 2) {
+        grid[idx] = targetSymbol;
+      } else {
+        grid[idx] = missSymbol;
+      }
+    });
+
+    return grid;
+  };
+
+  const getSpinPhase = () => {
+    const spinCount = spinSessionRef.current;
+    if (spinCount <= 9) {
+      return {
+        mode: 'attraction',
+        winChance: 0.8,
+        nearMissChance: 0.7,
+        bigWinChance: 0.015,
+      };
+    }
+
+    if (spinCount <= 40) {
+      return {
+        mode: 'normal',
+        winChance: 0.45,
+        nearMissChance: 0.52,
+        bigWinChance: 0.02,
+      };
+    }
+
+    return {
+      mode: 'late',
+      winChance: 0.42,
+      nearMissChance: 0.48,
+      bigWinChance: 0.08,
+    };
+  };
+
   const getMultiplierFromWeight = (winWeight: number) => {
     if (winWeight >= 0.75) return 10;
     if (winWeight >= 0.5) return 5;
@@ -125,12 +216,11 @@ export default function PixiSlotGame({ balance, onUpdateBalance, onClose }: Pixi
       weight: SYMBOL_WEIGHTS[symbol.id] ?? 0.1,
     }));
 
-    let winChance = 0.32;
-    const rtpFactor = Math.max(0.18, Math.min(0.82, 1 - RTP_TARGET + 0.18));
-    winChance = Math.min(0.64, Math.max(0.2, winChance + rtpFactor * 0.18));
-
-    const shouldWin = Math.random() <= winChance;
-    const grid = buildWeightedGrid();
+    const phase = getSpinPhase();
+    const isNearMiss = Math.random() < phase.nearMissChance;
+    const bigWinActive = spinSessionRef.current >= 40 && Math.random() < phase.bigWinChance;
+    const shouldWin = Math.random() <= phase.winChance || bigWinActive;
+    let grid = isNearMiss ? buildNearMissGrid() : buildWeightedGrid();
 
     if (!shouldWin) {
       return {
@@ -141,8 +231,16 @@ export default function PixiSlotGame({ balance, onUpdateBalance, onClose }: Pixi
       };
     }
 
-    const winningSymbol = weightedPick(symbolPool.map((entry) => ({ value: entry.value, weight: entry.weight * 0.9 })));
-    const payoutWeight = Math.max(0.08, (winningSymbol.payout / 50) * (0.9 + Math.random() * 0.6));
+    const winningSymbol = weightedPick(
+      symbolPool.map((entry) => ({
+        value: entry.value,
+        weight: entry.weight * (bigWinActive ? 1.35 : 0.9),
+      }))
+    );
+    const payoutWeight = Math.max(
+      0.08,
+      (winningSymbol.payout / 50) * (phase.mode === 'attraction' ? 0.95 : 1.15) * (0.8 + Math.random() * 0.9)
+    );
 
     const linePattern = [
       [0, 1, 2],
@@ -167,7 +265,7 @@ export default function PixiSlotGame({ balance, onUpdateBalance, onClose }: Pixi
 
     const basePayout = rowPattern.every((cell) => cell === rowPattern[0]) ? winningSymbol.payout * 1.2 : 0;
     const multiplier = getMultiplierFromWeight(Math.min(1, payoutWeight));
-    const payout = basePayout > 0 ? basePayout * multiplier : 0;
+    const payout = basePayout > 0 ? basePayout * multiplier * (bigWinActive ? 1.8 : 1) : 0;
 
     if (payout <= 0 && winningSymbol.id !== 'wild') {
       return {
@@ -179,14 +277,13 @@ export default function PixiSlotGame({ balance, onUpdateBalance, onClose }: Pixi
     }
 
     const finalGrid = [...grid];
-    selectedLine.forEach((idx, order) => {
-      const symbolImg = winningSymbol.img;
-      finalGrid[idx] = order === 1 && winningSymbol.id === 'wild' ? symbolImg : symbolImg;
+    selectedLine.forEach((idx) => {
+      finalGrid[idx] = winningSymbol.img;
     });
 
     return {
       grid: finalGrid,
-      multiplier,
+      multiplier: bigWinActive ? Math.max(multiplier, 5) : multiplier,
       payout,
       winWeight: Math.min(1, payoutWeight),
     };
@@ -423,6 +520,7 @@ export default function PixiSlotGame({ balance, onUpdateBalance, onClose }: Pixi
       await playSound('click');
       await playSound('spin');
 
+      spinSessionRef.current += 1;
       const newBal = currentBalance - bet;
       setCurrentBalance(newBal);
       if (onUpdateBalance) {
@@ -676,7 +774,10 @@ export default function PixiSlotGame({ balance, onUpdateBalance, onClose }: Pixi
                 onClick={async () => {
                   await unlockAudio();
                   await playSound('click');
-                  setBet(prev => Math.max(10, prev - 10));
+                  setBet(prev => {
+                    const next = BET_SEQUENCE.filter((value) => value < prev).slice(-1)[0] ?? MIN_BET;
+                    return Math.max(MIN_BET, next || MIN_BET);
+                  });
                 }}
                 className="w-7 h-7 bg-stone-800 border border-amber-500/40 rounded-lg font-black text-sm text-amber-400 active:scale-90"
               >
@@ -690,7 +791,11 @@ export default function PixiSlotGame({ balance, onUpdateBalance, onClose }: Pixi
                 onClick={async () => {
                   await unlockAudio();
                   await playSound('click');
-                  setBet(prev => prev + 10);
+                  setBet(prev => {
+                    const currentIndex = BET_SEQUENCE.indexOf(prev);
+                    const next = BET_SEQUENCE[currentIndex >= 0 ? currentIndex + 1 : 1] ?? BET_SEQUENCE[BET_SEQUENCE.length - 1];
+                    return next || MIN_BET;
+                  });
                 }}
                 className="w-7 h-7 bg-stone-800 border border-amber-500/40 rounded-lg font-black text-sm text-amber-400 active:scale-90"
               >

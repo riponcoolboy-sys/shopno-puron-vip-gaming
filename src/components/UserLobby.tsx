@@ -105,6 +105,19 @@ export default function UserLobby({
   const [bottomNavTab, setBottomNavTab] = useState<BottomNavTab>('home');
   const [currentLanguage, setCurrentLanguage] = useState<'bn' | 'en'>('bn');
 
+  useEffect(() => {
+    if (typeof wallet?.balance === 'number') {
+      localStorage.setItem('shopno_puron_balance', String(wallet.balance));
+      localStorage.setItem('user_balance', String(wallet.balance));
+    }
+    if (currentUser && currentUser.username) {
+      localStorage.setItem(
+        'shopno_puron_user_data',
+        JSON.stringify({ ...currentUser, balance: wallet?.balance ?? currentUser.balance ?? 0 })
+      );
+    }
+  }, [currentUser, wallet.balance]);
+
   // Modals & Drawers States
   const [showSidebar, setShowSidebar] = useState<boolean>(false);
   const [selectedGame, setSelectedGame] = useState<GameItem | null>(null);
