@@ -42,7 +42,6 @@ const SOUND_PATHS: Record<string, string> = {
   'big-win': '/sounds/big-win.mp3',
   click: '/sounds/click.mp3',
   coin: '/sounds/coin.mp3',
-  fire: '/sounds/fire.mp3',
 };
 
 export default function PixiSlotGame({ balance, onUpdateBalance, onClose }: PixiSlotGameProps) {
@@ -60,6 +59,7 @@ export default function PixiSlotGame({ balance, onUpdateBalance, onClose }: Pixi
   const [activeMultiplier, setActiveMultiplier] = useState(1);
   const [showCoins, setShowCoins] = useState(false);
   const [showWinPopup, setShowWinPopup] = useState(false);
+  const [winningCells, setWinningCells] = useState<number[]>([]);
 
   const coinRainCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const animationFrameRef = useRef<number | null>(null);
@@ -67,6 +67,8 @@ export default function PixiSlotGame({ balance, onUpdateBalance, onClose }: Pixi
   const coinRainRef = useRef<any[]>([]);
   const coinImageRef = useRef<HTMLImageElement | null>(null);
   const spinAudioRef = useRef<HTMLAudioElement | null>(null);
+  const bgmAudioRef = useRef<HTMLAudioElement | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
 
   const isAutoSpinRef = useRef(isAutoSpin);
   isAutoSpinRef.current = isAutoSpin;
@@ -192,8 +194,58 @@ export default function PixiSlotGame({ balance, onUpdateBalance, onClose }: Pixi
 
   const audioUnlockedRef = useRef(false);
 
-  const unlockAudio = () => {
-    if (audioUnlockedRef.current) return;
+  const ensureAudioContext = async () => {
+    const AudioCtor = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioCtor) return null;
+
+    if (!audioContextRef.current) {
+      audioContextRef.current = new AudioCtor();
+    }
+
+    if (audioContextRef.current.state === 'suspended') {
+      await audioContextRef.current.resume();
+    }
+
+    return audioContextRef.current;
+  };
+
+  const startBgm = async () => {
+    await ensureAudioContext();
+
+    if (!bgmAudioRef.current) {
+      const bgmAudio = new Audio(SOUND_PATHS.bgm);
+      bgmAudio.loop = true;
+      bgmAudio.volume = 0.18;
+      bgmAudio.preload = 'auto';
+      bgmAudioRef.current = bgmAudio;
+    }
+
+    const bgmAudio = bgmAudioRef.current;
+    if (!bgmAudio) return;
+
+    try {
+      bgmAudio.loop = true;
+      if (bgmAudio.paused) {
+        await bgmAudio.play();
+      }
+    } catch (e) {
+      console.warn('BGM failed to start:', e);
+    }
+  };
+
+  const stopBgm = () => {
+    if (bgmAudioRef.current) {
+      bgmAudioRef.current.pause();
+      bgmAudioRef.current.currentTime = 0;
+    }
+  };
+
+  const unlockAudio = async () => {
+    if (audioUnlockedRef.current) {
+      await startBgm();
+      return;
+    }
+
     audioUnlockedRef.current = true;
 
     try {
@@ -201,6 +253,8 @@ export default function PixiSlotGame({ balance, onUpdateBalance, onClose }: Pixi
       audio.volume = 0.04;
       audio.play().catch(() => {});
     } catch (e) {}
+
+    await startBgm();
   };
 
   const stopSpinAudio = () => {
@@ -211,19 +265,20 @@ export default function PixiSlotGame({ balance, onUpdateBalance, onClose }: Pixi
     }
   };
 
-  const playSound = (soundName: string) => {
+  const playSound = async (soundName: string) => {
     try {
       const safeSoundName = soundName in SOUND_PATHS ? soundName : 'click';
       const audio = new Audio(SOUND_PATHS[safeSoundName]);
       audio.preload = 'auto';
-      audio.volume = soundName === 'fire' ? 0.8 : soundName === 'spin' ? 0.6 : soundName === 'coin' ? 0.9 : 0.7;
+      audio.volume = soundName === 'spin' ? 0.6 : soundName === 'coin' ? 0.9 : 0.7;
 
       if (soundName === 'spin') {
         stopSpinAudio();
         spinAudioRef.current = audio;
       }
 
-      audio.play().catch(() => {
+      await ensureAudioContext();
+      await audio.play().catch(() => {
         unlockAudio();
       });
       return audio;
@@ -354,7 +409,7 @@ export default function PixiSlotGame({ balance, onUpdateBalance, onClose }: Pixi
     }, animationDuration + 100);
   };
 
-  const handleSpin = () => {
+  const handleSpin = async () => {
     try {
       if (currentBalance < bet || isSpinning) {
         setIsAutoSpin(false);
@@ -364,9 +419,9 @@ export default function PixiSlotGame({ balance, onUpdateBalance, onClose }: Pixi
         return;
       }
 
-      unlockAudio();
-      playSound('click');
-      playSound('spin');
+      await unlockAudio();
+      await playSound('click');
+      await playSound('spin');
 
       const newBal = currentBalance - bet;
       setCurrentBalance(newBal);
@@ -378,6 +433,7 @@ export default function PixiSlotGame({ balance, onUpdateBalance, onClose }: Pixi
       setWinAmount(0);
       setShowCoins(false);
       setShowWinPopup(false);
+      setWinningCells([]);
 
       let counter = 0;
       const interval = setInterval(() => {
@@ -408,14 +464,16 @@ export default function PixiSlotGame({ balance, onUpdateBalance, onClose }: Pixi
   const evaluateWin = (finalGrid: string[], multiplier: number, latestBal: number, forcePayout?: number, winWeight?: number) => {
     try {
       const lines = [
-        [0, 1, 2], [3, 4, 5], [6, 7, 8], 
-        [0, 3, 6], [1, 4, 7], [2, 5, 8], 
-        [0, 4, 8], [2, 4, 6]             
+        [0, 1, 2], [3, 4, 5], [6, 7, 8],
+        [0, 3, 6], [1, 4, 7], [2, 5, 8],
+        [0, 4, 8], [2, 4, 6]
       ];
 
       let baseWin = 0;
+      const winningLineSet = new Set<number>();
+      const matchingLines: number[][] = [];
 
-      lines.forEach(line => {
+      lines.forEach((line) => {
         const s1 = finalGrid[line[0]] || '';
         const s2 = finalGrid[line[1]] || '';
         const s3 = finalGrid[line[2]] || '';
@@ -424,7 +482,7 @@ export default function PixiSlotGame({ balance, onUpdateBalance, onClose }: Pixi
         const isWild2 = s2.includes('wild');
         const isWild3 = s3.includes('wild');
 
-        const matchBase = [s1, s2, s3].find(s => s && !s.includes('wild')) || s1;
+        const matchBase = [s1, s2, s3].find((s) => s && !s.includes('wild')) || s1;
 
         if (
           matchBase &&
@@ -432,9 +490,11 @@ export default function PixiSlotGame({ balance, onUpdateBalance, onClose }: Pixi
           (s2 === matchBase || isWild2) &&
           (s3 === matchBase || isWild3)
         ) {
-          const symbolObj = SYMBOLS.find(s => matchBase.includes(s.id));
+          const symbolObj = SYMBOLS.find((s) => matchBase.includes(s.id));
           if (symbolObj && symbolObj.payout) {
             baseWin += bet * symbolObj.payout;
+            matchingLines.push(line);
+            line.forEach((cellIndex) => winningLineSet.add(cellIndex));
           }
         }
       });
@@ -443,6 +503,8 @@ export default function PixiSlotGame({ balance, onUpdateBalance, onClose }: Pixi
       const totalWin = forcePayout && forcePayout > 0 ? forcePayout : baseWin * finalMultiplier;
 
       if (totalWin > 0) {
+        const winningCellsForLine = Array.from(winningLineSet);
+        setWinningCells(winningCellsForLine);
         setWinAmount(totalWin);
         setShowWinPopup(true);
         const updated = latestBal + totalWin;
@@ -453,17 +515,16 @@ export default function PixiSlotGame({ balance, onUpdateBalance, onClose }: Pixi
 
         const coinAudio = playSound('coin');
         const winAudio = playSound(totalWin >= bet * 15 ? 'big-win' : 'win');
-        const coinDuration = coinAudio && Number.isFinite(coinAudio.duration) && coinAudio.duration > 0
-          ? coinAudio.duration * 1000
+        const coinDuration = coinAudio && Number.isFinite((coinAudio as HTMLAudioElement).duration) && (coinAudio as HTMLAudioElement).duration > 0
+          ? (coinAudio as HTMLAudioElement).duration * 1000
           : 1800;
-        const winDuration = winAudio && Number.isFinite(winAudio.duration) && winAudio.duration > 0
-          ? winAudio.duration * 1000
+        const winDuration = winAudio && Number.isFinite((winAudio as HTMLAudioElement).duration) && (winAudio as HTMLAudioElement).duration > 0
+          ? (winAudio as HTMLAudioElement).duration * 1000
           : 2000;
 
-        const effectDuration = Math.max(3000, Math.min(3000, coinDuration, winDuration));
+        const effectDuration = Math.min(3000, Math.max(2200, Math.min(coinDuration, winDuration)));
         triggerCoinBurst(effectDuration);
         setShowCoins(true);
-        playSound('fire');
 
         if (coinRainTimeoutRef.current) {
           window.clearTimeout(coinRainTimeoutRef.current);
@@ -472,11 +533,14 @@ export default function PixiSlotGame({ balance, onUpdateBalance, onClose }: Pixi
         coinRainTimeoutRef.current = window.setTimeout(() => {
           setShowCoins(false);
           setShowWinPopup(false);
+          setWinningCells([]);
           cleanupCoinRain();
         }, 3000);
+      } else {
+        setWinningCells([]);
       }
     } catch (err) {
-      console.error("Error evaluating win:", err);
+      console.error('Error evaluating win:', err);
     }
   };
 
@@ -490,8 +554,10 @@ export default function PixiSlotGame({ balance, onUpdateBalance, onClose }: Pixi
     return () => clearTimeout(timer);
   }, [isAutoSpin, isSpinning]);
 
-  const handleClose = () => {
-    playSound('click');
+  const handleClose = async () => {
+    await unlockAudio();
+    await playSound('click');
+    stopBgm();
     setIsAutoSpin(false);
     if (onClose) onClose();
     else window.history.back();
@@ -544,20 +610,36 @@ export default function PixiSlotGame({ balance, onUpdateBalance, onClose }: Pixi
 
         <div className="flex-1 flex items-center justify-center w-full py-1 min-h-0">
           <div className="flex flex-row items-stretch gap-2 w-full h-full">
-            <div className="flex-1 p-2 bg-zinc-900/90 rounded-2xl border-2 border-amber-500/50 shadow-inner min-h-0">
-              <div className="grid grid-cols-3 gap-2 flex-1 max-h-[340px] p-1 h-full mx-auto">
-                {grid.map((imgSrc, idx) => (
-                  <div
-                    key={idx}
-                    className="border-2 border-amber-500/60 rounded-xl bg-zinc-900/90 aspect-square flex items-center justify-center relative overflow-hidden max-h-[105px] max-w-[105px] mx-auto w-full h-full"
-                  >
-                    <img
-                      src={imgSrc}
-                      alt="symbol"
-                      className={`w-full h-full object-contain mix-blend-screen transition-all ${isSpinning ? 'animate-pulse opacity-60 scale-95' : 'opacity-100 scale-100'}`}
-                    />
+            <div className="flex-1 p-2 bg-zinc-900/90 rounded-2xl border-2 border-amber-500/50 shadow-inner min-h-0 relative">
+              {showWinPopup && winAmount > 0 && (
+                <div className="absolute left-1/2 top-2 -translate-x-1/2 z-30 pointer-events-none">
+                  <div className="px-4 py-2 rounded-full border-2 border-amber-200 bg-gradient-to-r from-emerald-500 via-yellow-400 to-amber-500 text-black shadow-[0_0_22px_rgba(250,204,21,0.9)] animate-pulse">
+                    <span className="font-black text-[10px] uppercase tracking-[0.25em] mr-2">Win</span>
+                    <span className="font-black text-sm">৳ {winAmount.toFixed(2)}</span>
                   </div>
-                ))}
+                </div>
+              )}
+
+              <div className="grid grid-cols-3 gap-2 flex-1 max-h-[340px] p-1 h-full mx-auto relative z-10">
+                {grid.map((imgSrc, idx) => {
+                  const isWinningCell = winningCells.includes(idx);
+                  return (
+                    <div
+                      key={idx}
+                      className={`border-2 rounded-xl bg-zinc-900/90 aspect-square flex items-center justify-center relative overflow-hidden max-h-[105px] max-w-[105px] mx-auto w-full h-full transition-all duration-200 ${
+                        isWinningCell
+                          ? 'border-emerald-300 bg-emerald-500/10 shadow-[0_0_18px_rgba(52,211,153,0.7)] scale-[1.03] animate-pulse'
+                          : 'border-amber-500/60'
+                      }`}
+                    >
+                      <img
+                        src={imgSrc}
+                        alt="symbol"
+                        className={`w-full h-full object-contain mix-blend-screen transition-all ${isSpinning ? 'animate-pulse opacity-60 scale-95' : 'opacity-100 scale-100'}`}
+                      />
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
@@ -591,7 +673,11 @@ export default function PixiSlotGame({ balance, onUpdateBalance, onClose }: Pixi
           <div className="flex flex-row items-center justify-between gap-2 w-full">
             <div className="flex items-center bg-stone-900 p-1 rounded-xl border border-amber-500/40">
               <button
-                onClick={() => { playSound('click'); setBet(prev => Math.max(10, prev - 10)); }}
+                onClick={async () => {
+                  await unlockAudio();
+                  await playSound('click');
+                  setBet(prev => Math.max(10, prev - 10));
+                }}
                 className="w-7 h-7 bg-stone-800 border border-amber-500/40 rounded-lg font-black text-sm text-amber-400 active:scale-90"
               >
                 -
@@ -601,7 +687,11 @@ export default function PixiSlotGame({ balance, onUpdateBalance, onClose }: Pixi
                 <p className="font-extrabold text-xs text-amber-300">৳{bet}</p>
               </div>
               <button
-                onClick={() => { playSound('click'); setBet(prev => prev + 10); }}
+                onClick={async () => {
+                  await unlockAudio();
+                  await playSound('click');
+                  setBet(prev => prev + 10);
+                }}
                 className="w-7 h-7 bg-stone-800 border border-amber-500/40 rounded-lg font-black text-sm text-amber-400 active:scale-90"
               >
                 +
@@ -621,8 +711,9 @@ export default function PixiSlotGame({ balance, onUpdateBalance, onClose }: Pixi
             </button>
 
             <button
-              onClick={() => {
-                playSound('click');
+              onClick={async () => {
+                await unlockAudio();
+                await playSound('click');
                 setIsAutoSpin(!isAutoSpin);
               }}
               className={`px-3 py-3 rounded-2xl font-extrabold text-xs border transition-all ${
