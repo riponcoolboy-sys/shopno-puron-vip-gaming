@@ -28,7 +28,18 @@ const parseJsonValue = (raw: string | null) => {
 
 const isValidStoredUser = (value: any): value is User => {
   if (!value || typeof value !== 'object') return false;
-  return !!(value.username || value.email || value.phone || value._id || value.id || value.role);
+  const hasIdentity = typeof value._id === 'string' || typeof value.id === 'string';
+  return (
+    hasIdentity &&
+    typeof value.username === 'string' &&
+    value.username.trim().length > 0 &&
+    typeof value.phone === 'string' &&
+    value.phone.trim().length > 0 &&
+    (value.role === 'player' || value.role === 'admin') &&
+    typeof value.balance === 'number' &&
+    Number.isFinite(value.balance) &&
+    value.balance >= 0
+  );
 };
 
 const clearBrokenAuthState = () => {
@@ -42,6 +53,8 @@ const clearBrokenAuthState = () => {
     'user',
     'shopno_puron_user_data',
     'shopno_puron_balance',
+    'SHOPNO_PURON_USER_V2',
+    'SHOPNO_PURON_BALANCE_V2',
     'user_balance',
     'shopno_puron_wallet',
   ];
@@ -107,15 +120,7 @@ export default function App() {
   const [token, setToken] = useState<string | null>(null);
   const [role, setRole] = useState<'player' | 'admin' | null>(null);
   const [tamperWarning, setTamperWarning] = useState<string | null>(null);
-  const [currentUser, setCurrentUser] = useState<User | null>({
-    _id: 'usr_78912',
-    username: 'vip_player07',
-    phone: '01700123456',
-    role: 'player',
-    balance: 5240,
-    vipTier: 'GOLD',
-    points: 1250,
-  });
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
 
   const [isMuted, setIsMuted] = useState<boolean>(false);
   const [showSupportModal, setShowSupportModal] = useState<boolean>(false);
@@ -217,49 +222,50 @@ export default function App() {
 
   // ১. মোবাইল বা ব্রাউজার লোড হওয়ার সাথে সাথে সেভড টোকেন চেক করবে
   useEffect(() => {
-    const savedToken =
-      secureStorage.getItem<string>('auth_token', null) ||
-      secureStorage.getItem<string>('user_token', null) ||
-      localStorage.getItem('token') ||
-      localStorage.getItem('user_token') ||
-      localStorage.getItem('auth_token');
-
-    const savedRole =
-      (localStorage.getItem('user_role') as 'player' | 'admin') || null;
-
-    let savedUser: User | null = null;
-    const rawStoredUser = localStorage.getItem(PERSISTENT_USER_KEY) || localStorage.getItem('SHOPNO_PURON_USER_V2');
-
     try {
+      const savedToken =
+        secureStorage.getItem<string>('auth_token', null) ||
+        secureStorage.getItem<string>('user_token', null) ||
+        localStorage.getItem('token') ||
+        localStorage.getItem('user_token') ||
+        localStorage.getItem('auth_token');
+      const savedRole =
+        (localStorage.getItem('user_role') as 'player' | 'admin') || null;
+      const rawStoredUser = localStorage.getItem(PERSISTENT_USER_KEY);
+      let savedUser: User | null = null;
+
       if (rawStoredUser) {
         const parsed = JSON.parse(rawStoredUser);
         if (isValidStoredUser(parsed)) savedUser = parsed;
       }
-    } catch (err) {
-      console.error('Storage error:', err);
-      localStorage.removeItem(PERSISTENT_USER_KEY);
-      localStorage.removeItem('SHOPNO_PURON_USER_V2');
-    }
 
-    if (!savedUser) {
-      savedUser = secureStorage.getItem<User>('aviator_user', null) || secureStorage.getItem<User>('user_profile', null) || readPersistentUser();
-    }
+      if (!savedUser) {
+        const secureUser = secureStorage.getItem<User>('aviator_user', null);
+        const profileUser = secureStorage.getItem<User>('user_profile', null);
+        const legacyUser = readPersistentUser();
+        savedUser = [secureUser, profileUser, legacyUser].find(isValidStoredUser) || null;
+      }
 
-    if (savedToken && isValidStoredUser(savedUser)) {
-      setToken(savedToken);
-      setRole(savedRole || 'player');
-      setCurrentUser(savedUser);
-      if (typeof savedUser.balance === 'number') {
+      if (savedToken && savedUser && isValidStoredUser(savedUser)) {
+        setToken(savedToken);
+        setRole(savedRole || savedUser.role);
+        setCurrentUser(savedUser);
         setWallet((prev) => ({ ...prev, balance: savedUser.balance }));
         writePersistentBalance(savedUser.balance);
+        return;
       }
-      return;
-    }
 
-    clearBrokenAuthState();
-    setToken(null);
-    setRole(null);
-    setCurrentUser(null);
+      clearBrokenAuthState();
+      setToken(null);
+      setRole(null);
+      setCurrentUser(null);
+    } catch (err) {
+      console.error('Storage error:', err);
+      clearBrokenAuthState();
+      setToken(null);
+      setRole(null);
+      setCurrentUser(null);
+    }
   }, []);
 
   // ডাটাবেজ থেকে আসল প্রোফাইল ও লাইভ ব্যালেন্স ফেচ করার ফাংশন

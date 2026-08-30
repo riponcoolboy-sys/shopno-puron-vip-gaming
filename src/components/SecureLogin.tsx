@@ -6,6 +6,38 @@ import { sanitizeInput, authRateLimiter, secureStorage } from '../utils/security
 
 // Render ব্যাকএন্ডের মূল URL
 const API_BASE_URL = 'https://shopno-puron-vip-backend.onrender.com';
+const PERSISTENT_USER_KEY = 'SHOPNO_PURON_USER_V2';
+
+const isValidPlayerUser = (value: any): value is User => {
+  if (!value || typeof value !== 'object') return false;
+  const hasIdentity = typeof value._id === 'string' || typeof value.id === 'string';
+  return (
+    hasIdentity &&
+    typeof value.username === 'string' &&
+    value.username.trim().length > 0 &&
+    typeof value.phone === 'string' &&
+    value.phone.trim().length > 0 &&
+    value.role === 'player' &&
+    typeof value.balance === 'number' &&
+    Number.isFinite(value.balance) &&
+    value.balance >= 0
+  );
+};
+
+const persistPlayerUser = (value: unknown): value is User => {
+  if (!isValidPlayerUser(value)) return false;
+  try {
+    const serializedUser = JSON.stringify(value);
+    secureStorage.setItem('aviator_user', value);
+    secureStorage.setItem('user_profile', value);
+    localStorage.setItem(PERSISTENT_USER_KEY, serializedUser);
+    localStorage.setItem('aviator_user', serializedUser);
+    localStorage.setItem('user_profile', serializedUser);
+    return true;
+  } catch {
+    return false;
+  }
+};
 
 interface SecureLoginProps {
   onLoginSuccess?: (user: User | any, userRole?: string) => void;
@@ -305,11 +337,9 @@ export default function SecureLogin({ onLoginSuccess, onOpenSupport }: SecureLog
           authRateLimiter.reset();
           setSuccessMsg(t.loginSuccess);
 
-          if (data.user) {
-            secureStorage.setItem('aviator_user', data.user);
-            secureStorage.setItem('user_profile', data.user);
-            localStorage.setItem('aviator_user', JSON.stringify(data.user));
-            localStorage.setItem('user_profile', JSON.stringify(data.user));
+          if (!persistPlayerUser(data.user)) {
+            setErrorMsg(lang === 'bn' ? 'অবৈধ ব্যবহারকারী তথ্য পাওয়া গেছে' : 'Invalid user session received');
+            return;
           }
           if (data.token) {
             secureStorage.setItem('user_token', data.token);
@@ -355,11 +385,9 @@ export default function SecureLogin({ onLoginSuccess, onOpenSupport }: SecureLog
           authRateLimiter.reset();
           setSuccessMsg(t.regSuccess);
 
-          if (data.user) {
-            secureStorage.setItem('aviator_user', data.user);
-            secureStorage.setItem('user_profile', data.user);
-            localStorage.setItem('aviator_user', JSON.stringify(data.user));
-            localStorage.setItem('user_profile', JSON.stringify(data.user));
+          if (!persistPlayerUser(data.user)) {
+            setErrorMsg(lang === 'bn' ? 'অবৈধ ব্যবহারকারী তথ্য পাওয়া গেছে' : 'Invalid user session received');
+            return;
           }
           if (data.token) {
             secureStorage.setItem('user_token', data.token);
