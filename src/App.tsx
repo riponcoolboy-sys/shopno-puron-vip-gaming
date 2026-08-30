@@ -16,16 +16,46 @@ const CURRENT_VERSION = "1.0.2";
 const PERSISTENT_USER_KEY = 'shopno_puron_user_data';
 const PERSISTENT_BALANCE_KEY = 'shopno_puron_balance';
 
-const readPersistentUser = () => {
+const parseJsonValue = (raw: string | null) => {
+  if (!raw || raw === 'null' || raw === 'undefined') return null;
   try {
-    const direct = localStorage.getItem(PERSISTENT_USER_KEY);
-    if (direct) return JSON.parse(direct);
-  } catch {}
+    const parsed = JSON.parse(raw);
+    return parsed ?? null;
+  } catch {
+    return null;
+  }
+};
 
-  try {
-    const legacy = localStorage.getItem('aviator_user') || localStorage.getItem('user_profile') || localStorage.getItem('user');
-    if (legacy) return JSON.parse(legacy);
-  } catch {}
+const isValidStoredUser = (value: any): value is User => {
+  if (!value || typeof value !== 'object') return false;
+  return !!(value.username || value.email || value.phone || value._id || value.id || value.role);
+};
+
+const clearBrokenAuthState = () => {
+  const keysToClear = [
+    'user_token',
+    'auth_token',
+    'token',
+    'user_role',
+    'user_profile',
+    'aviator_user',
+    'user',
+    'shopno_puron_user_data',
+    'shopno_puron_balance',
+    'user_balance',
+    'shopno_puron_wallet',
+  ];
+  keysToClear.forEach((key) => localStorage.removeItem(key));
+};
+
+const readPersistentUser = () => {
+  const direct = parseJsonValue(localStorage.getItem(PERSISTENT_USER_KEY));
+  if (isValidStoredUser(direct)) return direct;
+
+  const legacy = parseJsonValue(localStorage.getItem('aviator_user'))
+    || parseJsonValue(localStorage.getItem('user_profile'))
+    || parseJsonValue(localStorage.getItem('user'));
+  if (isValidStoredUser(legacy)) return legacy;
 
   return null;
 };
@@ -198,26 +228,32 @@ export default function App() {
     const savedUser =
       secureStorage.getItem<User>('aviator_user', null) ||
       secureStorage.getItem<User>('user_profile', null) ||
-      readPersistentUser() ||
-      (() => {
-        try {
-          const raw = localStorage.getItem('aviator_user') || localStorage.getItem('user_profile') || localStorage.getItem('user');
-          return raw ? JSON.parse(raw) : null;
-        } catch {
-          return null;
-        }
-      })();
+      readPersistentUser();
 
-    if (savedToken) {
+    if (savedToken && isValidStoredUser(savedUser)) {
       setToken(savedToken);
       setRole(savedRole || 'player');
-      if (savedUser) {
-        setCurrentUser(savedUser);
-        if (typeof savedUser.balance === 'number') {
-          setWallet((prev) => ({ ...prev, balance: savedUser.balance }));
-          writePersistentBalance(savedUser.balance);
-        }
+      setCurrentUser(savedUser);
+      if (typeof savedUser.balance === 'number') {
+        setWallet((prev) => ({ ...prev, balance: savedUser.balance }));
+        writePersistentBalance(savedUser.balance);
       }
+      return;
+    }
+
+    if (savedToken || savedUser) {
+      clearBrokenAuthState();
+      setToken(null);
+      setRole(null);
+      setCurrentUser({
+        _id: 'usr_78912',
+        username: 'vip_player07',
+        phone: '01700123456',
+        role: 'player',
+        balance: 5240,
+        vipTier: 'GOLD',
+        points: 1250,
+      });
     }
   }, []);
 
@@ -411,6 +447,7 @@ export default function App() {
   const handleLoginSuccess = (user: User | string, userRoleParam?: string) => {
     let tok = '';
     let resolvedRole: 'player' | 'admin' = 'player';
+    let nextUser: User | null = null;
 
     if (typeof user === 'string') {
       resolvedRole = (userRoleParam as any) || (user.toLowerCase().includes('admin') ? 'admin' : 'player');
@@ -420,16 +457,18 @@ export default function App() {
         localStorage.getItem('user_token') ||
         localStorage.getItem('auth_token') ||
         `tok_${Date.now()}`;
-      const newUser: User = {
+      nextUser = {
         username: sanitizeInput.username(user),
         phone: '01700123456',
         role: resolvedRole,
         balance: resolvedRole === 'admin' ? 50000 : 5240,
         vipTier: resolvedRole === 'admin' ? 'DIAMOND' : 'GOLD',
       };
-      setCurrentUser(newUser);
-      secureStorage.setItem('aviator_user', newUser);
-      secureStorage.setItem('user_profile', newUser);
+      setCurrentUser(nextUser);
+      secureStorage.setItem('aviator_user', nextUser);
+      secureStorage.setItem('user_profile', nextUser);
+      writePersistentUser(nextUser);
+      writePersistentBalance(nextUser.balance ?? 5240);
     } else {
       resolvedRole = user.role || 'player';
       tok =
@@ -438,13 +477,16 @@ export default function App() {
         localStorage.getItem('user_token') ||
         localStorage.getItem('auth_token') ||
         `tok_${Date.now()}`;
-      setCurrentUser(user);
-      if (user.balance !== undefined) {
-        setWallet((prev) => ({ ...prev, balance: user.balance }));
+      nextUser = { ...user, role: resolvedRole, balance: user.balance ?? wallet.balance ?? 5240 };
+      setCurrentUser(nextUser);
+      if (nextUser.balance !== undefined) {
+        setWallet((prev) => ({ ...prev, balance: nextUser.balance }));
       }
-      secureStorage.setItem('aviator_user', user);
-      secureStorage.setItem('user_profile', user);
-      localStorage.setItem('user_profile', JSON.stringify(user));
+      secureStorage.setItem('aviator_user', nextUser);
+      secureStorage.setItem('user_profile', nextUser);
+      writePersistentUser(nextUser);
+      writePersistentBalance(nextUser.balance ?? wallet.balance ?? 5240);
+      localStorage.setItem('user_profile', JSON.stringify(nextUser));
     }
 
     secureStorage.setItem('user_token', tok);
@@ -452,11 +494,6 @@ export default function App() {
     localStorage.setItem('user_token', tok);
     localStorage.setItem('auth_token', tok);
     localStorage.setItem('user_role', resolvedRole);
-
-    if (typeof currentUser === 'object' && currentUser && currentUser.username) {
-      writePersistentUser(currentUser);
-      writePersistentBalance(Number(currentUser.balance) || wallet.balance);
-    }
 
     setToken(tok);
     setRole(resolvedRole);
@@ -477,6 +514,7 @@ export default function App() {
     localStorage.removeItem('shopno_puron_balance');
     localStorage.removeItem('user_balance');
     localStorage.removeItem('user');
+    clearBrokenAuthState();
     setToken(null);
     setRole(null);
   };
