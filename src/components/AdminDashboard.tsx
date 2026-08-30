@@ -589,6 +589,17 @@ export default function AdminDashboard({
     } catch {}
   };
 
+  const rtpDisplayProbabilities = {
+    lose: 0.3,
+    low: 0.6,
+    medium: 0.08,
+    high: 0.02,
+  };
+
+  const liveRtpValue = Number.parseFloat(
+    String(rtpDiagnostics.currentCalculatedRTP ?? '93.00').replace('%', '')
+  ) || 93;
+
   // Combine unified transactions for logs tab
   const combinedTransactions: TransactionLogItem[] = [
     ...deposits.map((d) => ({
@@ -1685,28 +1696,28 @@ export default function AdminDashboard({
                 <div className="bg-[#121624] p-3 rounded-xl border border-slate-800">
                   <span className="text-[10px] text-slate-400 uppercase font-bold">নো উইন / লস (0x)</span>
                   <p className="text-base font-black text-red-400 mt-0.5">
-                    {Math.round((rtpConfig.probabilities?.lose || 0.3) * 100)}%
+                    {Math.round((rtpDisplayProbabilities.lose || 0.3) * 100)}%
                   </p>
                 </div>
 
                 <div className="bg-[#121624] p-3 rounded-xl border border-slate-800">
                   <span className="text-[10px] text-slate-400 uppercase font-bold">ছোট জয় (1x - 2x)</span>
                   <p className="text-base font-black text-emerald-400 mt-0.5">
-                    {Math.round((rtpConfig.probabilities?.low || 0.6) * 100)}%
+                    {Math.round((rtpDisplayProbabilities.low || 0.6) * 100)}%
                   </p>
                 </div>
 
                 <div className="bg-[#121624] p-3 rounded-xl border border-slate-800">
                   <span className="text-[10px] text-slate-400 uppercase font-bold">মাঝারি জয় (3x - 5x)</span>
                   <p className="text-base font-black text-blue-400 mt-0.5">
-                    {Math.round((rtpConfig.probabilities?.medium || 0.08) * 100)}%
+                    {Math.round((rtpDisplayProbabilities.medium || 0.08) * 100)}%
                   </p>
                 </div>
 
                 <div className="bg-[#121624] p-3 rounded-xl border border-slate-800">
                   <span className="text-[10px] text-slate-400 uppercase font-bold">মেগা / জ্যাকপট (10x+)</span>
                   <p className="text-base font-black text-amber-400 mt-0.5">
-                    {Math.round((rtpConfig.probabilities?.high || 0.02) * 100)}%
+                    {Math.round((rtpDisplayProbabilities.high || 0.02) * 100)}%
                   </p>
                 </div>
               </div>
@@ -1770,14 +1781,14 @@ export default function AdminDashboard({
                 <div>
                   <span className="text-xs font-bold text-slate-300">রিয়েল-টাইম লাইভ টেলিমেট্রি</span>
                   <p className="text-[11px] text-slate-400">
-                    মোট স্পিন: {rtpDiagnostics.totalSpins} • মোট বেট: ৳{rtpDiagnostics.totalIn} • মোট পেআউট: ৳{rtpDiagnostics.totalOut}
+                    মোট স্পিন: {rtpDiagnostics.totalSpins} • মোট বেট: ৳{rtpDiagnostics.totalBets} • মোট পেআউট: ৳{rtpDiagnostics.totalPayouts}
                   </p>
                 </div>
               </div>
               <div className="text-right">
                 <span className="text-xs text-slate-400">হিসাবকৃত লাইভ RTP:</span>
                 <p className="text-lg font-black text-emerald-400 font-mono">
-                  {rtpDiagnostics.effectiveRtp}%
+                  {liveRtpValue.toFixed(2)}%
                 </p>
               </div>
             </div>
