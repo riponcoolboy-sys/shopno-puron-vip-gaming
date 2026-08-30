@@ -92,6 +92,16 @@ export default function UserLobby({
   // Category state for the active 15-game catalog.
   const [activeCategory, setActiveCategory] = useState<string>('hot');
   const [searchQuery, setSearchQuery] = useState<string>('');
+
+  const sortFeaturedGames = (games: typeof GAMES_DATA) => {
+    const featuredId = 'garuda-slot';
+    return [...games].sort((a, b) => {
+      const aIsFeatured = a.id === featuredId ? 1 : 0;
+      const bIsFeatured = b.id === featuredId ? 1 : 0;
+      if (aIsFeatured !== bIsFeatured) return bIsFeatured - aIsFeatured;
+      return 0;
+    });
+  };
   const [bottomNavTab, setBottomNavTab] = useState<BottomNavTab>('home');
   const [currentLanguage, setCurrentLanguage] = useState<'bn' | 'en'>('bn');
 
@@ -123,7 +133,7 @@ export default function UserLobby({
   ];
 
   // Filter games based on selected category & search query
-  const filteredGames = GAMES_DATA.filter((game) => {
+  const filteredGames = sortFeaturedGames(GAMES_DATA.filter((game) => {
     let matchesCategory = true;
     if (activeCategory !== 'all') matchesCategory = game.category === activeCategory;
 
@@ -134,7 +144,7 @@ export default function UserLobby({
       game.provider.toLowerCase().includes(searchQuery.toLowerCase());
 
     return matchesCategory && matchesSearch;
-  });
+  }));
 
   return (
     <div className="h-screen w-full flex bg-[#0B0E14] text-gray-100 font-sans overflow-hidden selection:bg-[#FFC700] selection:text-black">

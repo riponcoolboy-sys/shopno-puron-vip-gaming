@@ -407,9 +407,9 @@ export default function SecureLogin({ onLoginSuccess, onOpenSupport }: SecureLog
         <h1
           onClick={handleTitleClick}
           className="text-2xl sm:text-3xl font-extrabold uppercase tracking-wider font-sans bg-gradient-to-b from-white via-[#ffd700] to-[#ff8c00] bg-clip-text text-transparent cursor-pointer active:scale-95 transition drop-shadow-[0_2px_10px_rgba(255,215,0,0.3)] select-none"
-          title="AVIATOR BDT VIP GAMING"
+          title="Shopno Puron VIP GAMING"
         >
-          AVIATOR BDT
+          Shopno Puron
         </h1>
 
         <div className="text-[10px] sm:text-[11px] text-[#8a99ad] tracking-wide mt-1 mb-4 flex items-center justify-center gap-1.5 font-semibold">
