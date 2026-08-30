@@ -3,135 +3,480 @@ import React, { useState, useEffect, useRef } from 'react';
 
 interface PixiSlotGameProps {
   balance?: number;
-  onUpdateBalance?: (amount: number) => void;
+  onUpdateBalance?: (
+    newBalance: number,
+    amountWonOrLost: number,
+    type: 'BET' | 'WIN',
+    description: string
+  ) => void;
   onClose?: () => void;
 }
 
 const SYMBOLS = [
-  { id: 'garuda', label: '🦅', payout: 50 },
-  { id: 'wild', label: '👑', payout: 30 },
-  { id: 'crown', label: '💎', payout: 20 },
-  { id: 'ring', label: '💍', payout: 15 },
-  { id: 'red-gem', label: '🔻', payout: 10 },
-  { id: 'green-gem', label: '🟢', payout: 5 },
-  { id: 'blue-gem', label: '🔷', payout: 2 },
+  { id: 'garuda', img: '/images/garuda.png', payout: 50 },
+  { id: 'wild', img: '/images/wild.png', payout: 30 },
+  { id: 'crown', img: '/images/crown.png', payout: 20 },
+  { id: 'ring', img: '/images/ring.png', payout: 15 },
+  { id: 'red-gem', img: '/images/red-gem.png', payout: 10 },
+  { id: 'green-gem', img: '/images/green-gem.png', payout: 5 },
+  { id: 'blue-gem', img: '/images/blue-gem.png', payout: 2 },
 ];
 
 const MULTIPLIERS = [1, 2, 3, 5, 10];
+const RTP_TARGET = 0.96;
 
-export default function PixiSlotGame({ balance = 5000, onUpdateBalance, onClose }: PixiSlotGameProps) {
-  // Safe Balance Reader
-  const getInitialBalance = () => {
-    try {
-      const stored = localStorage.getItem('user_balance');
-      if (stored && !isNaN(parseFloat(stored)) && parseFloat(stored) > 0) {
-        return parseFloat(stored);
-      }
-      const w1 = localStorage.getItem('shopno_puron_wallet');
-      if (w1) {
-        const p = JSON.parse(w1);
-        if (typeof p.balance === 'number' && p.balance > 0) return p.balance;
-      }
-    } catch (e) {}
-    return balance > 0 ? balance : 5000;
+const SYMBOL_WEIGHTS = {
+  garuda: 0.015,
+  wild: 0.05,
+  crown: 0.12,
+  ring: 0.17,
+  'red-gem': 0.23,
+  'green-gem': 0.25,
+  'blue-gem': 0.18,
+};
+
+const SOUND_PATHS: Record<string, string> = {
+  bgm: '/sounds/bgm.mp3',
+  spin: '/sounds/spin.mp3',
+  win: '/sounds/win.mp3',
+  'big-win': '/sounds/big-win.mp3',
+  click: '/sounds/click.mp3',
+  coin: '/sounds/coin.mp3',
+  fire: '/sounds/fire.mp3',
+};
+
+export default function PixiSlotGame({ balance, onUpdateBalance, onClose }: PixiSlotGameProps) {
+  // Safe Balance Extractor (Prevents NaN)
+  const getSafeBalance = (val: any) => {
+    const num = Number(val);
+    return !isNaN(num) && num >= 0 ? num : 0;
   };
 
-  const [currentBalance, setCurrentBalance] = useState<number>(getInitialBalance);
+  const [currentBalance, setCurrentBalance] = useState<number>(() => getSafeBalance(balance));
   const [bet, setBet] = useState(10);
   const [isSpinning, setIsSpinning] = useState(false);
   const [isAutoSpin, setIsAutoSpin] = useState(false);
   const [winAmount, setWinAmount] = useState(0);
   const [activeMultiplier, setActiveMultiplier] = useState(1);
   const [showCoins, setShowCoins] = useState(false);
+  const [showWinPopup, setShowWinPopup] = useState(false);
+
+  const coinRainCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
+  const coinRainTimeoutRef = useRef<number | null>(null);
+  const coinRainRef = useRef<any[]>([]);
+  const coinImageRef = useRef<HTMLImageElement | null>(null);
+  const spinAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const isAutoSpinRef = useRef(isAutoSpin);
   isAutoSpinRef.current = isAutoSpin;
 
-  const [grid, setGrid] = useState<typeof SYMBOLS>(() => 
-    Array(9).fill(0).map(() => SYMBOLS[Math.floor(Math.random() * SYMBOLS.length)])
+  // Sync wallet on component update
+  useEffect(() => {
+    if (balance !== undefined && balance !== null) {
+      setCurrentBalance(getSafeBalance(balance));
+    }
+  }, [balance]);
+
+  const [grid, setGrid] = useState<string[]>(() => 
+    Array(9).fill(0).map(() => SYMBOLS[Math.floor(Math.random() * SYMBOLS.length)].img)
   );
 
-  const updateWallet = (delta: number) => {
-    setCurrentBalance((prev) => {
-      const nextBal = Math.max(0, prev + delta);
-      try {
-        localStorage.setItem('user_balance', nextBal.toString());
-        const w1 = localStorage.getItem('shopno_puron_wallet');
-        let walletObj = w1 ? JSON.parse(w1) : {};
-        walletObj.balance = nextBal;
-        localStorage.setItem('shopno_puron_wallet', JSON.stringify(walletObj));
-      } catch (e) {}
+  const randomBetween = (min: number, max: number) => Math.random() * (max - min) + min;
 
-      if (onUpdateBalance) onUpdateBalance(delta);
-      return nextBal;
+  const weightedPick = <T,>(items: Array<{ value: T; weight: number }>) => {
+    const totalWeight = items.reduce((sum, item) => sum + item.weight, 0);
+    let target = Math.random() * totalWeight;
+
+    for (const item of items) {
+      target -= item.weight;
+      if (target <= 0) return item.value;
+    }
+
+    return items[items.length - 1].value;
+  };
+
+  const buildWeightedGrid = () => {
+    const weightedSymbols = SYMBOLS.map((symbol) => ({
+      value: symbol.img,
+      weight: SYMBOL_WEIGHTS[symbol.id] ?? 0.1,
+    }));
+
+    const cells: string[] = [];
+    for (let i = 0; i < 9; i += 1) {
+      cells.push(weightedPick(weightedSymbols));
+    }
+    return cells;
+  };
+
+  const getMultiplierFromWeight = (winWeight: number) => {
+    if (winWeight >= 0.75) return 10;
+    if (winWeight >= 0.5) return 5;
+    if (winWeight >= 0.3) return 3;
+    if (winWeight >= 0.16) return 2;
+    return 1;
+  };
+
+  const calculateSpinOutcome = () => {
+    const symbolPool = SYMBOLS.map((symbol) => ({
+      value: symbol,
+      weight: SYMBOL_WEIGHTS[symbol.id] ?? 0.1,
+    }));
+
+    let winChance = 0.32;
+    const rtpFactor = Math.max(0.18, Math.min(0.82, 1 - RTP_TARGET + 0.18));
+    winChance = Math.min(0.64, Math.max(0.2, winChance + rtpFactor * 0.18));
+
+    const shouldWin = Math.random() <= winChance;
+    const grid = buildWeightedGrid();
+
+    if (!shouldWin) {
+      return {
+        grid,
+        multiplier: 1,
+        payout: 0,
+        winWeight: 0,
+      };
+    }
+
+    const winningSymbol = weightedPick(symbolPool.map((entry) => ({ value: entry.value, weight: entry.weight * 0.9 })));
+    const payoutWeight = Math.max(0.08, (winningSymbol.payout / 50) * (0.9 + Math.random() * 0.6));
+
+    const linePattern = [
+      [0, 1, 2],
+      [3, 4, 5],
+      [6, 7, 8],
+      [0, 3, 6],
+      [1, 4, 7],
+      [2, 5, 8],
+      [0, 4, 8],
+      [2, 4, 6],
+    ];
+
+    const selectedLine = linePattern[Math.floor(Math.random() * linePattern.length)];
+    const lineValues = selectedLine.map((idx) => grid[idx]);
+    const assignedSymbol = lineValues[0] || winningSymbol.img;
+
+    const rowPattern = lineValues.map((cell) => {
+      const isWild = cell.includes('wild') || assignedSymbol.includes('wild');
+      const matched = isWild ? winningSymbol.img : cell;
+      return matched;
     });
+
+    const basePayout = rowPattern.every((cell) => cell === rowPattern[0]) ? winningSymbol.payout * 1.2 : 0;
+    const multiplier = getMultiplierFromWeight(Math.min(1, payoutWeight));
+    const payout = basePayout > 0 ? basePayout * multiplier : 0;
+
+    if (payout <= 0 && winningSymbol.id !== 'wild') {
+      return {
+        grid: buildWeightedGrid(),
+        multiplier: 1,
+        payout: 0,
+        winWeight: 0,
+      };
+    }
+
+    const finalGrid = [...grid];
+    selectedLine.forEach((idx, order) => {
+      const symbolImg = winningSymbol.img;
+      finalGrid[idx] = order === 1 && winningSymbol.id === 'wild' ? symbolImg : symbolImg;
+    });
+
+    return {
+      grid: finalGrid,
+      multiplier,
+      payout,
+      winWeight: Math.min(1, payoutWeight),
+    };
+  };
+
+  const audioUnlockedRef = useRef(false);
+
+  const unlockAudio = () => {
+    if (audioUnlockedRef.current) return;
+    audioUnlockedRef.current = true;
+
+    try {
+      const audio = new Audio(SOUND_PATHS.click);
+      audio.volume = 0.04;
+      audio.play().catch(() => {});
+    } catch (e) {}
+  };
+
+  const stopSpinAudio = () => {
+    if (spinAudioRef.current) {
+      spinAudioRef.current.pause();
+      spinAudioRef.current.currentTime = 0;
+      spinAudioRef.current = null;
+    }
+  };
+
+  const playSound = (soundName: string) => {
+    try {
+      const safeSoundName = soundName in SOUND_PATHS ? soundName : 'click';
+      const audio = new Audio(SOUND_PATHS[safeSoundName]);
+      audio.preload = 'auto';
+      audio.volume = soundName === 'fire' ? 0.8 : soundName === 'spin' ? 0.6 : soundName === 'coin' ? 0.9 : 0.7;
+
+      if (soundName === 'spin') {
+        stopSpinAudio();
+        spinAudioRef.current = audio;
+      }
+
+      audio.play().catch(() => {
+        unlockAudio();
+      });
+      return audio;
+    } catch (e) {
+      return null;
+    }
+  };
+
+  useEffect(() => {
+    const img = new Image();
+    img.src = '/images/gold-coin.png';
+    img.onload = () => {
+      coinImageRef.current = img;
+    };
+
+    return () => {
+      if (coinRainTimeoutRef.current) {
+        window.clearTimeout(coinRainTimeoutRef.current);
+      }
+      cleanupCoinRain();
+    };
+  }, []);
+
+  const cleanupCoinRain = () => {
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
+
+    if (coinRainTimeoutRef.current) {
+      window.clearTimeout(coinRainTimeoutRef.current);
+      coinRainTimeoutRef.current = null;
+    }
+
+    if (coinRainCanvasRef.current) {
+      const canvas = coinRainCanvasRef.current;
+      const context = canvas.getContext('2d');
+      if (context) {
+        context.clearRect(0, 0, canvas.width, canvas.height);
+      }
+    }
+
+    coinRainRef.current = [];
+  };
+
+  const triggerCoinBurst = (durationMs = 3000) => {
+    const canvas = coinRainCanvasRef.current;
+    if (!canvas) return;
+
+    const context = canvas.getContext('2d');
+    if (!context) return;
+
+    const parent = canvas.parentElement;
+    const bounds = parent ? parent.getBoundingClientRect() : { width: window.innerWidth, height: window.innerHeight };
+    const width = Math.max(1, bounds.width);
+    const height = Math.max(1, bounds.height);
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${height}px`;
+    context.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    const burst = Array.from({ length: 50 }, () => ({
+      x: Math.random() * width,
+      y: -20 - Math.random() * height * 0.4,
+      radius: 12 + Math.random() * 10,
+      velocityX: (Math.random() - 0.5) * 3.4,
+      velocityY: 2.2 + Math.random() * 3.2,
+      gravity: 0.09 + Math.random() * 0.14,
+      rotation: Math.random() * Math.PI * 2,
+      spin: (Math.random() - 0.5) * 0.2,
+      alpha: 0.8 + Math.random() * 0.2,
+    }));
+
+    coinRainRef.current = burst;
+    const startTime = performance.now();
+    const animationDuration = Math.min(Math.max(durationMs, 2500), 3000);
+
+    const drawCoins = (timestamp: number) => {
+      const elapsed = timestamp - startTime;
+      if (elapsed > animationDuration) {
+        cleanupCoinRain();
+        return;
+      }
+
+      context.clearRect(0, 0, width, height);
+
+      coinRainRef.current.forEach((coin) => {
+        coin.x += coin.velocityX;
+        coin.y += coin.velocityY;
+        coin.velocityY += coin.gravity;
+        coin.rotation += coin.spin;
+
+        if (coin.y > height + 30) {
+          coin.y = -20;
+          coin.x = Math.random() * width;
+          coin.velocityX = (Math.random() - 0.5) * 3.4;
+          coin.velocityY = 2.2 + Math.random() * 3.2;
+        }
+
+        context.save();
+        context.translate(coin.x, coin.y);
+        context.rotate(coin.rotation);
+        context.globalAlpha = coin.alpha;
+
+        if (coinImageRef.current) {
+          context.drawImage(coinImageRef.current, -coin.radius, -coin.radius, coin.radius * 2, coin.radius * 2);
+        } else {
+          context.beginPath();
+          context.arc(0, 0, coin.radius, 0, Math.PI * 2);
+          context.fillStyle = '#fbbf24';
+          context.fill();
+          context.lineWidth = 2;
+          context.strokeStyle = '#b45309';
+          context.stroke();
+        }
+
+        context.restore();
+      });
+
+      animationFrameRef.current = requestAnimationFrame(drawCoins);
+    };
+
+    animationFrameRef.current = requestAnimationFrame(drawCoins);
+    coinRainTimeoutRef.current = window.setTimeout(() => {
+      cleanupCoinRain();
+    }, animationDuration + 100);
   };
 
   const handleSpin = () => {
-    if (currentBalance < bet || isSpinning) {
-      setIsAutoSpin(false);
-      return;
-    }
-
-    updateWallet(-bet);
-    setIsSpinning(true);
-    setWinAmount(0);
-    setShowCoins(false);
-
-    let counter = 0;
-    const interval = setInterval(() => {
-      const randomGrid = Array(9).fill(0).map(() => 
-        SYMBOLS[Math.floor(Math.random() * SYMBOLS.length)]
-      );
-      const randomMult = MULTIPLIERS[Math.floor(Math.random() * MULTIPLIERS.length)];
-
-      setGrid(randomGrid);
-      setActiveMultiplier(randomMult);
-      counter++;
-
-      if (counter > 10) {
-        clearInterval(interval);
-        evaluateWin(randomGrid, randomMult);
-        setIsSpinning(false);
+    try {
+      if (currentBalance < bet || isSpinning) {
+        setIsAutoSpin(false);
+        if (currentBalance < bet && !isSpinning) {
+          alert("পর্যাপ্ত ব্যালেন্স নেই!");
+        }
+        return;
       }
-    }, 100);
+
+      unlockAudio();
+      playSound('click');
+      playSound('spin');
+
+      const newBal = currentBalance - bet;
+      setCurrentBalance(newBal);
+      if (onUpdateBalance) {
+        onUpdateBalance(newBal, -bet, 'BET', 'Fortune Garuda Slot');
+      }
+
+      setIsSpinning(true);
+      setWinAmount(0);
+      setShowCoins(false);
+      setShowWinPopup(false);
+
+      let counter = 0;
+      const interval = setInterval(() => {
+        const preview = buildWeightedGrid();
+        const previewWeight = Math.random();
+        const previewMult = getMultiplierFromWeight(previewWeight);
+
+        setGrid(preview);
+        setActiveMultiplier(previewMult);
+        counter++;
+
+        if (counter > 14) {
+          clearInterval(interval);
+          stopSpinAudio();
+          const outcome = calculateSpinOutcome();
+          setGrid(outcome.grid);
+          setActiveMultiplier(outcome.multiplier || 1);
+          evaluateWin(outcome.grid, outcome.multiplier || 1, newBal, outcome.payout, outcome.winWeight);
+          setIsSpinning(false);
+        }
+      }, 90);
+    } catch (err) {
+      setIsSpinning(false);
+      setIsAutoSpin(false);
+    }
   };
 
-  const evaluateWin = (finalGrid: typeof SYMBOLS, multiplier: number) => {
-    const lines = [
-      [0, 1, 2], [3, 4, 5], [6, 7, 8], 
-      [0, 3, 6], [1, 4, 7], [2, 5, 8], 
-      [0, 4, 8], [2, 4, 6]             
-    ];
+  const evaluateWin = (finalGrid: string[], multiplier: number, latestBal: number, forcePayout?: number, winWeight?: number) => {
+    try {
+      const lines = [
+        [0, 1, 2], [3, 4, 5], [6, 7, 8], 
+        [0, 3, 6], [1, 4, 7], [2, 5, 8], 
+        [0, 4, 8], [2, 4, 6]             
+      ];
 
-    let baseWin = 0;
+      let baseWin = 0;
 
-    lines.forEach(line => {
-      const s1 = finalGrid[line[0]];
-      const s2 = finalGrid[line[1]];
-      const s3 = finalGrid[line[2]];
+      lines.forEach(line => {
+        const s1 = finalGrid[line[0]] || '';
+        const s2 = finalGrid[line[1]] || '';
+        const s3 = finalGrid[line[2]] || '';
 
-      const isWild1 = s1.id === 'wild';
-      const isWild2 = s2.id === 'wild';
-      const isWild3 = s3.id === 'wild';
+        const isWild1 = s1.includes('wild');
+        const isWild2 = s2.includes('wild');
+        const isWild3 = s3.includes('wild');
 
-      const matchBase = [s1, s2, s3].find(s => s.id !== 'wild') || s1;
+        const matchBase = [s1, s2, s3].find(s => s && !s.includes('wild')) || s1;
 
-      if (
-        (s1.id === matchBase.id || isWild1) &&
-        (s2.id === matchBase.id || isWild2) &&
-        (s3.id === matchBase.id || isWild3)
-      ) {
-        baseWin += bet * matchBase.payout;
+        if (
+          matchBase &&
+          (s1 === matchBase || isWild1) &&
+          (s2 === matchBase || isWild2) &&
+          (s3 === matchBase || isWild3)
+        ) {
+          const symbolObj = SYMBOLS.find(s => matchBase.includes(s.id));
+          if (symbolObj && symbolObj.payout) {
+            baseWin += bet * symbolObj.payout;
+          }
+        }
+      });
+
+      const finalMultiplier = multiplier || getMultiplierFromWeight(Number(winWeight) || 0.2);
+      const totalWin = forcePayout && forcePayout > 0 ? forcePayout : baseWin * finalMultiplier;
+
+      if (totalWin > 0) {
+        setWinAmount(totalWin);
+        setShowWinPopup(true);
+        const updated = latestBal + totalWin;
+        setCurrentBalance(updated);
+        if (onUpdateBalance) {
+          onUpdateBalance(updated, totalWin, 'WIN', 'Fortune Garuda Slot Win');
+        }
+
+        const coinAudio = playSound('coin');
+        const winAudio = playSound(totalWin >= bet * 15 ? 'big-win' : 'win');
+        const coinDuration = coinAudio && Number.isFinite(coinAudio.duration) && coinAudio.duration > 0
+          ? coinAudio.duration * 1000
+          : 1800;
+        const winDuration = winAudio && Number.isFinite(winAudio.duration) && winAudio.duration > 0
+          ? winAudio.duration * 1000
+          : 2000;
+
+        const effectDuration = Math.max(3000, Math.min(3000, coinDuration, winDuration));
+        triggerCoinBurst(effectDuration);
+        setShowCoins(true);
+        playSound('fire');
+
+        if (coinRainTimeoutRef.current) {
+          window.clearTimeout(coinRainTimeoutRef.current);
+        }
+
+        coinRainTimeoutRef.current = window.setTimeout(() => {
+          setShowCoins(false);
+          setShowWinPopup(false);
+          cleanupCoinRain();
+        }, 3000);
       }
-    });
-
-    if (baseWin > 0) {
-      const totalWin = baseWin * multiplier;
-      setWinAmount(totalWin);
-      updateWallet(totalWin);
-      setShowCoins(true);
-      setTimeout(() => setShowCoins(false), 2000);
+    } catch (err) {
+      console.error("Error evaluating win:", err);
     }
   };
 
@@ -140,142 +485,157 @@ export default function PixiSlotGame({ balance = 5000, onUpdateBalance, onClose 
     if (isAutoSpin && !isSpinning) {
       timer = setTimeout(() => {
         if (isAutoSpinRef.current) handleSpin();
-      }, 500);
+      }, 700);
     }
     return () => clearTimeout(timer);
   }, [isAutoSpin, isSpinning]);
 
   const handleClose = () => {
+    playSound('click');
     setIsAutoSpin(false);
     if (onClose) onClose();
     else window.history.back();
   };
 
   return (
-    <div className="w-full max-w-md mx-auto bg-stone-950 border-4 border-amber-600 rounded-3xl p-3 text-white shadow-2xl relative overflow-hidden select-none font-sans">
-      
-      {/* Header Bar */}
-      <div className="flex justify-between items-center mb-2 bg-stone-900/90 p-2 rounded-2xl border border-amber-500/40">
-        <button 
-          onClick={handleClose}
-          className="px-3.5 py-1.5 bg-gradient-to-r from-red-700 to-red-900 text-white font-extrabold text-xs rounded-xl border border-red-500 active:scale-95 transition-all flex items-center gap-1"
-        >
-          <span>←</span> Back
-        </button>
+    <>
+      <div
+        className="w-full max-w-lg mx-auto h-[95vh] max-h-[720px] flex flex-col justify-between p-3 overflow-hidden rounded-3xl bg-black/95 border-2 border-amber-500/70 relative"
+        style={{ position: 'relative' }}
+      >
+        <canvas
+          ref={coinRainCanvasRef}
+          style={{
+            position: 'absolute',
+            inset: 0,
+            width: '100%',
+            height: '100%',
+            zIndex: 50,
+            pointerEvents: 'none',
+            display: showCoins || winAmount > 0 || showWinPopup ? 'block' : 'none',
+          }}
+          aria-label="Coin rain effect"
+        />
 
-        <div className="flex items-center gap-2 bg-black/70 px-3.5 py-1 rounded-xl border border-amber-500/40">
-          <span className="text-base">💰</span>
-          <div>
-            <p className="text-[9px] uppercase font-bold text-amber-400 leading-none">Wallet</p>
-            <p className="text-sm font-black text-amber-300 leading-tight">৳ {currentBalance.toLocaleString()}</p>
+        <div className="flex flex-row justify-between items-center w-full shrink-0 mb-1">
+          <button
+            onClick={handleClose}
+            className="px-3.5 py-1.5 bg-gradient-to-r from-red-700 to-red-900 hover:from-red-600 hover:to-red-800 text-white font-extrabold text-xs rounded-xl border border-red-500 active:scale-95 transition-all shadow-md flex items-center gap-1"
+          >
+            <span>←</span> Back
+          </button>
+
+          <div className="flex items-center gap-2 bg-black/70 px-3.5 py-1 rounded-xl border border-amber-500/40">
+            <span className="text-base">💰</span>
+            <div>
+              <p className="text-[9px] uppercase font-bold text-amber-400 leading-none">Wallet</p>
+              <p className="text-sm font-black text-amber-300 leading-tight">৳ {currentBalance.toLocaleString()}</p>
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* Hero Header */}
-      <div className="relative flex justify-center items-center h-28 bg-stone-900/60 rounded-2xl mb-2 border border-amber-500/30">
-        <div className="text-center">
-          <span className="text-5xl drop-shadow-[0_0_15px_rgba(245,158,11,0.8)]">🦅</span>
-          <p className="text-amber-400 font-black text-xs tracking-widest mt-1">GARUDA SLOT VIP</p>
-        </div>
-      </div>
-
-      {/* Grid */}
-      <div className="flex gap-1.5 bg-stone-900 p-2 rounded-2xl border-2 border-amber-500/60 relative">
-        <div className="grid grid-cols-3 gap-1.5 flex-1">
-          {grid.map((item, idx) => (
-            <div 
-              key={idx} 
-              className="aspect-square bg-stone-950 border-2 border-amber-500/40 rounded-xl flex items-center justify-center p-2 shadow-inner"
-            >
-              <span className={`text-3xl transition-all ${isSpinning ? 'opacity-50 scale-90' : 'opacity-100 scale-100'}`}>
-                {item.label}
-              </span>
-            </div>
-          ))}
+        <div className="w-48 h-28 mx-auto rounded-2xl border-2 border-amber-500/70 bg-zinc-900/90 p-1 flex items-center justify-center shrink-0 mb-2 overflow-hidden shadow-lg">
+          <img
+            src="/images/garuda.gif"
+            alt="Animated Garuda"
+            className="h-full w-full object-contain"
+          />
         </div>
 
-        {/* Multipliers */}
-        <div className="w-12 flex flex-col justify-between bg-stone-950 p-1 rounded-xl border border-amber-500/30">
-          {MULTIPLIERS.map((m) => {
-            const isActive = activeMultiplier === m;
-            return (
-              <div 
-                key={m} 
-                className={`py-1 rounded-lg text-center font-black text-[11px] border ${
-                  isActive 
-                    ? 'bg-amber-400 text-black border-yellow-200' 
-                    : 'bg-stone-900 text-amber-500/60 border-amber-500/20'
-                }`}
-              >
-                {m}x
+        <div className="flex-1 flex items-center justify-center w-full py-1 min-h-0">
+          <div className="flex flex-row items-stretch gap-2 w-full h-full">
+            <div className="flex-1 p-2 bg-zinc-900/90 rounded-2xl border-2 border-amber-500/50 shadow-inner min-h-0">
+              <div className="grid grid-cols-3 gap-2 flex-1 max-h-[340px] p-1 h-full mx-auto">
+                {grid.map((imgSrc, idx) => (
+                  <div
+                    key={idx}
+                    className="border-2 border-amber-500/60 rounded-xl bg-zinc-900/90 aspect-square flex items-center justify-center relative overflow-hidden max-h-[105px] max-w-[105px] mx-auto w-full h-full"
+                  >
+                    <img
+                      src={imgSrc}
+                      alt="symbol"
+                      className={`w-full h-full object-contain mix-blend-screen transition-all ${isSpinning ? 'animate-pulse opacity-60 scale-95' : 'opacity-100 scale-100'}`}
+                    />
+                  </div>
+                ))}
               </div>
-            );
-          })}
-        </div>
+            </div>
 
-        {/* Win Banner */}
-        {showCoins && (
-          <div className="absolute inset-0 z-20 flex justify-center items-center bg-black/80 rounded-2xl">
-            <div className="text-center bg-amber-500 p-4 rounded-2xl border-2 border-yellow-200 text-black font-black">
-              <p className="text-xl">🔥 WIN x{activeMultiplier}! 🔥</p>
-              <p className="text-2xl text-white mt-1">৳ {winAmount}</p>
+            <div className="flex flex-col justify-between h-full bg-zinc-900/90 p-1.5 rounded-xl border-2 border-amber-500/60 overflow-y-auto min-w-[50px]">
+              {['1x', '2x', '3x', '4x', '5x', '10x', '15x', '20x', '30x', '50x', '100x'].map((m) => {
+                const value = Number(m.replace('x', ''));
+                const isActive = activeMultiplier === value;
+                return (
+                  <div
+                    key={m}
+                    className={`flex-1 flex items-center justify-center font-bold text-xs rounded-lg border border-amber-500/30 my-0.5 ${
+                      isActive
+                        ? 'bg-gradient-to-r from-amber-400 to-yellow-500 text-black border-yellow-200 shadow-[0_0_12px_rgba(251,191,36,0.8)]'
+                        : 'bg-stone-900 text-amber-500/70 border-amber-500/20 opacity-80'
+                    }`}
+                  >
+                    {m}
+                  </div>
+                );
+              })}
             </div>
           </div>
-        )}
-      </div>
-
-      {/* Win Display */}
-      <div className="my-2 bg-stone-900/90 py-1.5 px-4 rounded-xl border border-amber-500/30 flex justify-between items-center">
-        <span className="text-amber-400 font-extrabold text-xs">WIN</span>
-        <span className="text-white font-black text-base">৳ {winAmount.toFixed(2)}</span>
-      </div>
-
-      {/* Controls */}
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center bg-stone-900 p-1 rounded-xl border border-amber-500/40">
-          <button 
-            onClick={() => setBet(prev => Math.max(10, prev - 10))}
-            className="w-7 h-7 bg-stone-800 rounded-lg font-black text-sm text-amber-400"
-          >
-            -
-          </button>
-          <div className="px-2 text-center">
-            <p className="text-[8px] uppercase text-gray-400 font-bold">BET</p>
-            <p className="font-extrabold text-xs text-amber-300">৳{bet}</p>
-          </div>
-          <button 
-            onClick={() => setBet(prev => prev + 10)}
-            className="w-7 h-7 bg-stone-800 rounded-lg font-black text-sm text-amber-400"
-          >
-            +
-          </button>
         </div>
 
-        <button
-          onClick={handleSpin}
-          disabled={isSpinning || currentBalance < bet}
-          className={`flex-1 py-3 rounded-2xl font-black text-lg border-2 ${
-            isSpinning || currentBalance < bet
-              ? 'bg-stone-800 text-stone-500 border-stone-700 cursor-not-allowed'
-              : 'bg-gradient-to-r from-amber-500 to-yellow-400 text-black border-yellow-200 active:scale-95'
-          }`}
-        >
-          {isSpinning ? 'SPIN...' : 'SPIN'}
-        </button>
+        <div className="w-full shrink-0 mt-auto pt-1 bg-zinc-950 sticky bottom-0 z-20">
+          <div className="bg-stone-900/90 py-1.5 px-4 rounded-xl border border-amber-500/30 flex justify-between items-center">
+            <span className="text-amber-400 font-extrabold text-xs tracking-wider">WIN</span>
+            <span className="text-white font-black text-base">৳ {winAmount.toFixed(2)}</span>
+          </div>
 
-        <button
-          onClick={() => setIsAutoSpin(!isAutoSpin)}
-          className={`px-3 py-3 rounded-2xl font-extrabold text-xs border ${
-            isAutoSpin 
-              ? 'bg-red-600 text-white border-red-400' 
-              : 'bg-stone-900 text-amber-400 border-amber-500/40'
-          }`}
-        >
-          {isAutoSpin ? 'STOP' : 'AUTO'}
-        </button>
+          <div className="flex flex-row items-center justify-between gap-2 w-full">
+            <div className="flex items-center bg-stone-900 p-1 rounded-xl border border-amber-500/40">
+              <button
+                onClick={() => { playSound('click'); setBet(prev => Math.max(10, prev - 10)); }}
+                className="w-7 h-7 bg-stone-800 border border-amber-500/40 rounded-lg font-black text-sm text-amber-400 active:scale-90"
+              >
+                -
+              </button>
+              <div className="px-2 text-center">
+                <p className="text-[8px] uppercase text-gray-400 font-bold">BET</p>
+                <p className="font-extrabold text-xs text-amber-300">৳{bet}</p>
+              </div>
+              <button
+                onClick={() => { playSound('click'); setBet(prev => prev + 10); }}
+                className="w-7 h-7 bg-stone-800 border border-amber-500/40 rounded-lg font-black text-sm text-amber-400 active:scale-90"
+              >
+                +
+              </button>
+            </div>
+
+            <button
+              onClick={handleSpin}
+              disabled={isSpinning || currentBalance < bet || isAutoSpin}
+              className={`flex-1 py-3 rounded-2xl font-black text-lg tracking-widest shadow-xl border-2 transition-all ${
+                isSpinning || currentBalance < bet
+                  ? 'bg-stone-800 text-stone-500 border-stone-700 cursor-not-allowed'
+                  : 'bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-600 text-black border-yellow-200 hover:brightness-110 active:scale-95 shadow-amber-500/30'
+              }`}
+            >
+              {isSpinning ? 'SPIN...' : 'SPIN'}
+            </button>
+
+            <button
+              onClick={() => {
+                playSound('click');
+                setIsAutoSpin(!isAutoSpin);
+              }}
+              className={`px-3 py-3 rounded-2xl font-extrabold text-xs border transition-all ${
+                isAutoSpin
+                  ? 'bg-red-600 text-white border-red-400 animate-pulse shadow-lg shadow-red-600/40'
+                  : 'bg-stone-900 text-amber-400 border-amber-500/40 hover:bg-stone-800'
+              }`}
+            >
+              {isAutoSpin ? 'STOP' : 'AUTO'}
+            </button>
+          </div>
+        </div>
       </div>
-
-    </div>
+    </>
   );
 }

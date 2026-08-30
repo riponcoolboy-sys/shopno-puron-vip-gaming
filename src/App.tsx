@@ -1,3 +1,4 @@
+import { WalletProvider } from './WalletContext';
 import React, { useState, useEffect, useCallback } from 'react';
 import { GameCategory, GameItem, Transaction, UserWallet, PaymentSettings, DepositRequest, User, PaymentGateway } from './types';
 import SecureLogin from './components/SecureLogin';
