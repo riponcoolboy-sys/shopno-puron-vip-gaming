@@ -812,7 +812,10 @@ export default function AdminDashboard({
 
       {/* 2. TOAST NOTIFICATION */}
       {toastMessage && (
-        <div className="fixed bottom-6 right-6 z-50 animate-in slide-in-from-bottom-5 duration-200 max-w-md">
+        <div
+          className="fixed bottom-6 left-1/2 z-50 w-max max-w-[calc(100vw-2rem)] mx-auto animate-in slide-in-from-bottom-5 duration-200"
+          style={{ left: '50%', transform: 'translateX(-50%)', width: 'max-content', margin: '0 auto' }}
+        >
           <div
             className={`px-4 py-3 rounded-2xl shadow-2xl border flex items-center gap-3 backdrop-blur-lg ${
               toastMessage.type === 'success'
@@ -825,7 +828,7 @@ export default function AdminDashboard({
             {toastMessage.type === 'success' && <CheckCircle2 size={18} className="text-emerald-400 shrink-0" />}
             {toastMessage.type === 'error' && <XCircle size={18} className="text-red-400 shrink-0" />}
             {toastMessage.type === 'info' && <Sparkles size={18} className="text-purple-400 shrink-0" />}
-            <span className="text-xs font-bold leading-relaxed">{toastMessage.text}</span>
+            <span className="text-xs font-bold leading-relaxed whitespace-nowrap">{toastMessage.text}</span>
           </div>
         </div>
       )}

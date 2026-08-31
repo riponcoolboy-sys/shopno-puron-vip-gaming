@@ -774,24 +774,41 @@ export default function App() {
   };
 
   const handleApproveDeposit = async (depositId: string, transactionId?: string) => {
-    const target =
-      depositRequests.find((r) => {
-        const candidateIds = [r.id, r._id, r.transactionId, depositId, transactionId].filter(Boolean) as string[];
-        return candidateIds.some((candidate) => candidate === depositId || candidate === transactionId || candidate === r.transactionId || candidate === r.id || candidate === r._id);
-      }) ?? null;
+    const normalizeValue = (value?: string | null) => String(value ?? '').trim();
+    const idMatches = (
+      item: DepositRequest & { trxId?: string; TrxID?: string },
+      candidateId?: string
+    ) => {
+      const normalizedId = normalizeValue(candidateId);
+      return (
+        item.id === candidateId ||
+        item._id === candidateId ||
+        item.trxId === candidateId ||
+        item.TrxID === candidateId ||
+        item.transactionId === candidateId ||
+        normalizeValue(item.id) === normalizedId ||
+        normalizeValue(item._id) === normalizedId ||
+        normalizeValue(item.trxId) === normalizedId ||
+        normalizeValue(item.TrxID) === normalizedId ||
+        normalizeValue(item.transactionId) === normalizedId
+      );
+    };
+
+    const matchesTarget = (item: DepositRequest & { trxId?: string; TrxID?: string }) =>
+      idMatches(item, depositId) ||
+      idMatches(item, transactionId) ||
+      idMatches(item, String(item._id || item.id || '')) ||
+      idMatches(item, String(item.transactionId || item.trxId || item.TrxID || ''));
+
+    const target = depositRequests.find((r) => matchesTarget(r as DepositRequest & { trxId?: string; TrxID?: string })) ?? null;
 
     if (!target) return;
 
     const exactDepositId = String(target._id || target.id || depositId).trim();
-    const exactTrxId = String(target.transactionId || transactionId || '').trim();
+    const exactTrxId = String(target.transactionId || (target as DepositRequest & { trxId?: string; TrxID?: string }).trxId || (target as DepositRequest & { trxId?: string; TrxID?: string }).TrxID || transactionId || '').trim();
     const approvedAmount = Number(target.amount) || 0;
     const bonusAmount = Number(target.bonusAmount || 0);
     const totalCredited = approvedAmount + bonusAmount;
-
-    const matchesTarget = (r: DepositRequest) => {
-      const candidates = [r.id, r._id, r.transactionId, exactDepositId, exactTrxId, depositId, transactionId].filter(Boolean) as string[];
-      return candidates.some((candidate) => candidate === exactDepositId || candidate === depositId || candidate === exactTrxId || candidate === transactionId || candidate === r.transactionId || candidate === r.id || candidate === r._id);
-    };
 
     setDepositRequests((prev) =>
       prev.map((r) => (matchesTarget(r) ? { ...r, status: 'approved', updatedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) } : r))
@@ -864,17 +881,35 @@ export default function App() {
   };
 
   const handleRejectDeposit = async (depositId: string, reason?: string) => {
-    const target = depositRequests.find((r) => {
-      const candidates = [r.id, r._id, r.transactionId, depositId].filter(Boolean) as string[];
-      return candidates.some((candidate) => candidate === depositId || candidate === r.transactionId || candidate === r.id || candidate === r._id);
-    }) ?? null;
+    const normalizeValue = (value?: string | null) => String(value ?? '').trim();
+    const idMatches = (
+      item: DepositRequest & { trxId?: string; TrxID?: string },
+      candidateId?: string
+    ) => {
+      const normalizedId = normalizeValue(candidateId);
+      return (
+        item.id === candidateId ||
+        item._id === candidateId ||
+        item.trxId === candidateId ||
+        item.TrxID === candidateId ||
+        item.transactionId === candidateId ||
+        normalizeValue(item.id) === normalizedId ||
+        normalizeValue(item._id) === normalizedId ||
+        normalizeValue(item.trxId) === normalizedId ||
+        normalizeValue(item.TrxID) === normalizedId ||
+        normalizeValue(item.transactionId) === normalizedId
+      );
+    };
+
+    const matchesTarget = (item: DepositRequest & { trxId?: string; TrxID?: string }) =>
+      idMatches(item, depositId) ||
+      idMatches(item, String(item._id || item.id || '')) ||
+      idMatches(item, String(item.transactionId || item.trxId || item.TrxID || ''));
+
+    const target = depositRequests.find((r) => matchesTarget(r as DepositRequest & { trxId?: string; TrxID?: string })) ?? null;
 
     setDepositRequests((prev) =>
-      prev.map((r) => {
-        const candidates = [r.id, r._id, r.transactionId, depositId].filter(Boolean) as string[];
-        const shouldReject = candidates.some((candidate) => candidate === depositId || candidate === r.transactionId || candidate === r.id || candidate === r._id);
-        return shouldReject ? { ...r, status: 'rejected', rejectionReason: reason } : r;
-      })
+      prev.map((r) => (matchesTarget(r) ? { ...r, status: 'rejected', rejectionReason: reason } : r))
     );
 
     if (target) {
