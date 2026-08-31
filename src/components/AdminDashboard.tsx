@@ -54,7 +54,7 @@ interface AdminDashboardProps {
   paymentSettings: PaymentSettings;
   depositRequests: DepositRequest[];
   onUpdatePaymentSettings: (settings: PaymentSettings) => void;
-  onApproveDeposit: (depositId: string) => Promise<void> | void;
+  onApproveDeposit: (depositId: string, transactionId?: string) => Promise<void> | void;
   onRejectDeposit: (depositId: string, reason?: string) => void;
   onLogout: () => void;
   onSwitchToLobby?: () => void;
@@ -351,27 +351,46 @@ export default function AdminDashboard({
   const totalPendingCount = pendingDeposits.length + pendingWithdrawals.length;
 
   // Approve Deposit Handler
-  const handleApproveDeposit = async (id: string) => {
-    const target = deposits.find((d) => d.id === id || d._id === id || d.transactionId === id) ?? null;
+  const handleApproveDeposit = async (id: string, trxId?: string) => {
+    const target =
+      deposits.find((d) => d.id === id || d._id === id || d.transactionId === id || d.transactionId === trxId || d.id === trxId) ??
+      null;
     const exactId = String(target?._id || target?.id || id).trim();
+    const exactTrxId = String(target?.transactionId || trxId || '').trim();
 
     sounds.playWin();
 
     setDeposits((prev) =>
       prev.map((d) => {
-        const matches = d.id === id || d._id === id || d.transactionId === id || d.id === exactId || d._id === exactId;
-        return matches ? { ...d, status: 'approved', updatedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) } : d;
+        const matches =
+          d.id === id ||
+          d._id === id ||
+          d.transactionId === id ||
+          d.id === exactId ||
+          d._id === exactId ||
+          d.transactionId === exactTrxId ||
+          d.transactionId === trxId;
+        return matches
+          ? { ...d, status: 'approved', updatedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }
+          : d;
       })
     );
 
     try {
-      await Promise.resolve(propApproveDeposit(exactId));
+      await Promise.resolve(propApproveDeposit(exactId, exactTrxId));
       await fetchAllAdminData();
       showToast('ডিপোজিট সফলভাবে অনুমোদিত হয়েছে এবং প্লেয়ার ব্যালেন্স ক্রেডিট করা হয়েছে!', 'success');
     } catch {
       setDeposits((prev) =>
         prev.map((d) => {
-          const matches = d.id === id || d._id === id || d.transactionId === id || d.id === exactId || d._id === exactId;
+          const matches =
+            d.id === id ||
+            d._id === id ||
+            d.transactionId === id ||
+            d.id === exactId ||
+            d._id === exactId ||
+            d.transactionId === exactTrxId ||
+            d.transactionId === trxId;
           return matches ? { ...d, status: 'pending' } : d;
         })
       );
@@ -1093,7 +1112,7 @@ export default function AdminDashboard({
                     {req.status === 'pending' && (
                       <div className="flex items-center gap-2 w-full sm:w-auto">
                         <button
-                          onClick={() => handleApproveDeposit(req.id)}
+                          onClick={() => handleApproveDeposit(req.id, req.transactionId)}
                           className="flex-1 sm:flex-initial bg-emerald-500 hover:bg-emerald-400 text-black font-black px-4 py-2 rounded-xl text-xs transition flex items-center justify-center gap-1.5 shadow-lg shadow-emerald-950/50"
                         >
                           <Check size={14} />

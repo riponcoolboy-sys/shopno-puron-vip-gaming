@@ -753,11 +753,20 @@ export default function App() {
     } catch {}
   };
 
-  const handleApproveDeposit = async (depositId: string) => {
-    const target = depositRequests.find((r) => r.id === depositId || r._id === depositId);
+  const handleApproveDeposit = async (depositId: string, transactionId?: string) => {
+    const target =
+      depositRequests.find(
+        (r) =>
+          r.id === depositId ||
+          r._id === depositId ||
+          r.transactionId === depositId ||
+          r.transactionId === transactionId ||
+          r.id === transactionId
+      ) ?? null;
     if (!target) return;
 
-    const exactDepositId = String(target._id || target.id || depositId);
+    const exactDepositId = String(target._id || target.id || depositId).trim();
+    const exactTrxId = String(target.transactionId || transactionId || '').trim();
     const approvedAmount = Number(target.amount) || 0;
     const bonusAmount = Number(target.bonusAmount || 0);
     const totalCredited = approvedAmount + bonusAmount;
@@ -770,7 +779,12 @@ export default function App() {
           'Content-Type': 'application/json',
           ...(activeToken ? { Authorization: `Bearer ${activeToken}` } : {}),
         },
-        body: JSON.stringify({ depositId: exactDepositId }),
+        body: JSON.stringify({
+          depositId: exactDepositId,
+          id: exactDepositId,
+          trxId: exactTrxId,
+          transactionId: exactTrxId,
+        }),
       });
 
       const data = await response.json().catch(() => null);

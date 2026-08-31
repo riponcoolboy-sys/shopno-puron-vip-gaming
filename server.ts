@@ -1572,18 +1572,42 @@ app.use(cors());
   // ==========================================
   const approveDepositHandler = async (req: any, res: any) => {
     try {
-      const { depositId } = req.body;
-      const exactDepositId = String(depositId || '').trim();
+      const rawDepositId = req.body?.depositId || req.body?.id || '';
+      const rawTrxId = req.body?.trxId || req.body?.transactionId || req.body?.TrxID || '';
+      const exactDepositId = String(rawDepositId || '').trim();
+      const exactTrxId = String(rawTrxId || '').trim().toUpperCase();
 
-      const deposit = dbDeposits.find((d) => d._id === exactDepositId || (d as any).id === exactDepositId);
-      if (!deposit || deposit.status !== 'pending') {
+      const deposit =
+        dbDeposits.find((d) => {
+          const matchesId = d._id === exactDepositId || (d as any).id === exactDepositId;
+          const matchesTrx = Boolean(exactTrxId) && d.transactionId && d.transactionId.toUpperCase() === exactTrxId;
+          return matchesId || matchesTrx;
+        }) || null;
+
+      if (!deposit) {
+        return res.status(400).json({
+          success: false,
+          message: 'ডিপোজিট রেকর্ড খুঁজে পাওয়া যায়নি।',
+        });
+      }
+
+      if (deposit.status !== 'pending') {
         return res.status(400).json({
           success: false,
           message: 'ইনভ্যালিড বা ইতোমধ্যে প্রসেসকৃত ডিপোজিট',
         });
       }
 
-      if (!dbUsers[deposit.userId]) {
+      const user =
+        dbUsers[deposit.userId] ||
+        Object.values(dbUsers).find(
+          (entry) =>
+            entry.username.toLowerCase() === String(deposit.userName || '').toLowerCase() ||
+            entry._id === deposit.userId
+        ) ||
+        null;
+
+      if (!user) {
         dbUsers[deposit.userId] = {
           _id: deposit.userId,
           username: deposit.userName || 'vip_player07',
@@ -1600,26 +1624,32 @@ app.use(cors());
         };
       }
 
+      const targetUser = dbUsers[deposit.userId] || dbUsers[(user && user._id) || deposit.userId];
+      if (!targetUser) {
+        return res.status(404).json({ success: false, message: 'ডিপোজিটের জন্য ইউজার খুঁজে পাওয়া যায়নি।' });
+      }
+
       deposit.status = 'approved';
-      deposit.updatedAt = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      deposit.updatedAt = new Date().toISOString();
 
       const amountToCredit = Number(deposit.amount) || 0;
-      dbUsers[deposit.userId].balance = Number(dbUsers[deposit.userId].balance || 0) + amountToCredit;
-      dbUsers[deposit.userId].totalDeposits = (Number(dbUsers[deposit.userId].totalDeposits) || 0) + amountToCredit;
-      dbUsers[deposit.userId].points = (Number(dbUsers[deposit.userId].points) || 0) + Math.floor(amountToCredit / 5);
-      dbUsers[deposit.userId].updatedAt = new Date().toISOString();
+      targetUser.balance = Number(targetUser.balance || 0) + amountToCredit;
+      targetUser.totalDeposits = (Number(targetUser.totalDeposits) || 0) + amountToCredit;
+      targetUser.points = (Number(targetUser.points) || 0) + Math.floor(amountToCredit / 5);
+      targetUser.updatedAt = new Date().toISOString();
 
       if (isMongoConnected) {
         try {
           await Promise.all([
-            DepositModel.findByIdAndUpdate(deposit._id, {
-              status: 'approved',
-              updatedAt: new Date(),
-            }, { new: true }),
-            UserModel.findByIdAndUpdate(deposit.userId, {
-              balance: dbUsers[deposit.userId].balance,
-              points: dbUsers[deposit.userId].points,
-              totalDeposits: dbUsers[deposit.userId].totalDeposits,
+            DepositModel.findOneAndUpdate(
+              { $or: [{ _id: deposit._id }, { transactionId: deposit.transactionId }, { id: (deposit as any).id || deposit._id }] },
+              { status: 'approved', updatedAt: new Date() },
+              { new: true }
+            ),
+            UserModel.findByIdAndUpdate(targetUser._id, {
+              balance: targetUser.balance,
+              points: targetUser.points,
+              totalDeposits: targetUser.totalDeposits,
               updatedAt: new Date(),
             }, { new: true }),
           ]);
@@ -1628,12 +1658,13 @@ app.use(cors());
         }
       }
 
-      broadcastUserBalance(deposit.userId, dbUsers[deposit.userId].balance, { actionType: 'DEPOSIT_APPROVED', amount: amountToCredit });
+      broadcastUserBalance(targetUser._id, targetUser.balance, { actionType: 'DEPOSIT_APPROVED', amount: amountToCredit });
 
       return res.status(200).json({
         success: true,
         message: 'ডিপোজিট সফলভাবে এপ্রুভ করা হয়েছে এবং ব্যালেন্স যুক্ত হয়েছে।',
-        newBalance: dbUsers[deposit.userId].balance,
+        newBalance: targetUser.balance,
+        updatedUserBalance: targetUser.balance,
         deposit,
       });
     } catch (error: any) {
