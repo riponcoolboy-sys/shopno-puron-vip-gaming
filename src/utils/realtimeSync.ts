@@ -27,6 +27,12 @@ class RealtimeSyncManager {
     this.initEvents();
   }
 
+  private isAdminSession(): boolean {
+    return typeof window !== 'undefined'
+      && (localStorage.getItem('user_role') === 'admin'
+        || Boolean(localStorage.getItem('admin_token')));
+  }
+
   private initEvents() {
     this.listeners.set('balance_update', new Set());
     this.listeners.set('connection_status', new Set());
@@ -63,6 +69,18 @@ class RealtimeSyncManager {
 
   public connect(userId?: string) {
     this.destroyed = false;
+
+    if (this.isAdminSession()) {
+      this.pausePolling();
+      if (this.ws) {
+        this.ws.close();
+        this.ws = null;
+      }
+      this.isConnecting = false;
+      this.isConnected = false;
+      return;
+    }
+
     if (userId) {
       this.currentUserId = userId;
     }
@@ -197,6 +215,11 @@ class RealtimeSyncManager {
   }
 
   private async pollServerState() {
+    if (this.isAdminSession()) {
+      this.pausePolling();
+      return;
+    }
+
     try {
       const token = localStorage.getItem('token') || localStorage.getItem('user_token') || localStorage.getItem('auth_token');
       const userObjStr = localStorage.getItem('user');
@@ -327,6 +350,10 @@ class RealtimeSyncManager {
     description: string = 'Game Result'
   ): Promise<{ success: boolean; finalBalance: number }> {
     const validatedBalance = Math.max(0, Math.round(Number(newBalance) * 100) / 100);
+    if (this.isAdminSession()) {
+      return { success: false, finalBalance: validatedBalance };
+    }
+
     const token = localStorage.getItem('token') || localStorage.getItem('user_token') || localStorage.getItem('auth_token');
 
     // Wallet changes are settled server-side; local storage never becomes authoritative.

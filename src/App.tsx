@@ -8,7 +8,7 @@ import SupportModal from './components/SupportModal';
 import { sounds } from './utils/audio';
 import { realtimeSync } from './utils/realtimeSync';
 import { sendDirectTelegramWithdrawAlert } from './utils/telegram';
-import { secureStorage, secureFetch, sanitizeInput, apiUrl } from './utils/security';
+import { secureStorage, secureFetch, sanitizeInput, apiUrl, isAdminSession } from './utils/security';
 import { ShieldCheck, AlertTriangle } from 'lucide-react';
 
 // গেমের বর্তমান ভার্সন (প্রতিবার আপডেট দিলে এটি পরিবর্তন করবেন, যেমন: 1.0.1 -> 1.0.2)
@@ -308,6 +308,8 @@ export default function App() {
 
   // ডাটাবেজ থেকে আসল প্রোফাইল ও লাইভ ব্যালেন্স ফেচ করার ফাংশন
   const loadUserProfile = useCallback(async () => {
+    if (isAdmin || isAdminSession()) return;
+
     const activeToken =
       secureStorage.getItem<string>('auth_token', null) ||
       secureStorage.getItem<string>('user_token', null) ||
@@ -343,7 +345,11 @@ export default function App() {
 
   // Anti-tamper verification loop / window focus verification
   useEffect(() => {
+    if (isAdmin) return;
+
     const verifyIntegrity = () => {
+      if (isAdmin || isAdminSession()) return;
+
       const verifiedWallet = secureStorage.getItem<UserWallet>(
         'shopno_puron_wallet',
         null,
@@ -364,10 +370,15 @@ export default function App() {
       window.removeEventListener('focus', verifyIntegrity);
       window.removeEventListener('storage', verifyIntegrity);
     };
-  }, [loadUserProfile]);
+  }, [isAdmin, loadUserProfile]);
 
   // ডাটাবেজ থেকে আসল প্রোফাইল ও লাইভ ব্যালেন্স ফেচ করার লজিক এবং রিয়েল-টাইম WebSocket/Polling কানেকশন
   useEffect(() => {
+    if (isAdmin) {
+      realtimeSync.destroy();
+      return;
+    }
+
     const activeUserId = currentUser?._id || currentUser?.id || 'usr_78912';
 
     // WebSocket auto-reconnect এবং HTTP polling fallback ইনিশিয়ালাইজেশন
@@ -438,7 +449,7 @@ export default function App() {
       unsubscribe();
       unsubscribeDeposits();
     };
-  }, [token, currentUser?._id, currentUser?.id, loadUserProfile]);
+  }, [isAdmin, token, currentUser?._id, currentUser?.id, loadUserProfile]);
 
   // Fetch active payment settings and deposit requests from API
   useEffect(() => {
