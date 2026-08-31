@@ -16,7 +16,6 @@ import {
 } from './src/utils/rtpManager';
 import { calculateCrashPoint } from './src/utils/gameEngine';
 import { BET_PRESETS } from './src/utils/betPresets';
-import cors from 'cors';
 import 'dotenv/config';
 
 const JWT_SECRET = 'your_super_secret_key_123';
@@ -498,19 +497,16 @@ export const verifyAdmin = (req: express.Request, res: express.Response, next: e
 async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT) || 3001;
-  const corsOptions = {
-    origin: '*',
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'x-csrf-token', 'X-CSRF-Token'],
-    credentials: false,
-  };
 
-  app.use(cors(corsOptions));
-  app.options('*', cors(corsOptions));
   app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-csrf-token');
+
     if (req.method === 'OPTIONS') {
-      return res.sendStatus(204);
+      return res.sendStatus(200);
     }
+
     next();
   });
 
