@@ -352,12 +352,29 @@ export default function AdminDashboard({
 
   // Approve Deposit Handler
   const handleApproveDeposit = async (id: string) => {
+    const target = deposits.find((d) => d.id === id || d._id === id || d.transactionId === id) ?? null;
+    const exactId = String(target?._id || target?.id || id).trim();
+
     sounds.playWin();
+
+    setDeposits((prev) =>
+      prev.map((d) => {
+        const matches = d.id === id || d._id === id || d.transactionId === id || d.id === exactId || d._id === exactId;
+        return matches ? { ...d, status: 'approved', updatedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) } : d;
+      })
+    );
+
     try {
-      await Promise.resolve(propApproveDeposit(id));
+      await Promise.resolve(propApproveDeposit(exactId));
       await fetchAllAdminData();
       showToast('ডিপোজিট সফলভাবে অনুমোদিত হয়েছে এবং প্লেয়ার ব্যালেন্স ক্রেডিট করা হয়েছে!', 'success');
     } catch {
+      setDeposits((prev) =>
+        prev.map((d) => {
+          const matches = d.id === id || d._id === id || d.transactionId === id || d.id === exactId || d._id === exactId;
+          return matches ? { ...d, status: 'pending' } : d;
+        })
+      );
       showToast('ডিপোজিট এপ্রুভ ব্যর্থ হয়েছে।', 'error');
     }
   };
