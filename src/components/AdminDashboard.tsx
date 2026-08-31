@@ -603,7 +603,7 @@ export default function AdminDashboard({
   // Combine unified transactions for logs tab
   const combinedTransactions: TransactionLogItem[] = [
     ...deposits.map((d) => ({
-      id: d.id || (d as any)._id,
+      id: d.id || (d as any)._id || '',
       type: 'DEPOSIT' as const,
       method: d.paymentMethod,
       amount: Number(d.amount) || 0,
@@ -622,7 +622,7 @@ export default function AdminDashboard({
       rejectionReason: d.rejectionReason,
     })),
     ...withdrawals.map((w) => ({
-      id: w.id || w._id,
+      id: w.id || w._id || '',
       type: 'WITHDRAW' as const,
       method: w.paymentMethod,
       amount: Number(w.amount) || 0,
@@ -1164,9 +1164,12 @@ export default function AdminDashboard({
                   কোনো উইথড্র রিকোয়েস্ট পাওয়া যায়নি
                 </div>
               ) : (
-                filteredWithdrawals.map((wth) => (
+                filteredWithdrawals.map((wth) => {
+                  const withdrawalId = wth.id || wth._id || '';
+
+                  return (
                   <div
-                    key={wth.id || wth._id}
+                    key={withdrawalId}
                     className="bg-[#07090e] border border-purple-900/20 hover:border-purple-700/40 rounded-2xl p-4 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 transition"
                   >
                     <div className="flex items-center gap-3.5">
@@ -1214,7 +1217,7 @@ export default function AdminDashboard({
                               <span className="flex items-center gap-1 font-mono text-emerald-300 bg-emerald-950/40 px-2 py-0.5 rounded-lg border border-emerald-900/50">
                                 TrxID: {wth.trxId}
                                 <button
-                                  onClick={() => handleCopy(wth.trxId!, wth.id || wth._id)}
+                                  onClick={() => handleCopy(wth.trxId!, withdrawalId)}
                                   className="hover:text-white"
                                 >
                                   <Copy size={12} />
@@ -1233,11 +1236,11 @@ export default function AdminDashboard({
                           <input
                             type="text"
                             placeholder="বিকাশ/নগদ TrxID লিখুন..."
-                            value={withdrawTrxInputs[wth.id || wth._id] || ''}
+                            value={withdrawTrxInputs[withdrawalId] || ''}
                             onChange={(e) =>
                               setWithdrawTrxInputs({
                                 ...withdrawTrxInputs,
-                                [wth.id || wth._id]: e.target.value,
+                                [withdrawalId]: e.target.value,
                               })
                             }
                             className="bg-[#121624] border border-slate-700 rounded-xl px-3 py-2 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-purple-500 w-full sm:w-48 font-mono"
@@ -1246,7 +1249,7 @@ export default function AdminDashboard({
 
                         <div className="flex items-center gap-2">
                           <button
-                            onClick={() => handleApproveWithdrawal(wth.id || wth._id)}
+                            onClick={() => handleApproveWithdrawal(withdrawalId)}
                             className="flex-1 sm:flex-initial bg-emerald-500 hover:bg-emerald-400 text-black font-black px-4 py-2 rounded-xl text-xs transition flex items-center justify-center gap-1.5 shadow-lg shadow-emerald-950/50"
                           >
                             <Check size={14} />
@@ -1257,7 +1260,7 @@ export default function AdminDashboard({
                               setRejectModal({
                                 isOpen: true,
                                 type: 'withdraw',
-                                id: wth.id || wth._id,
+                                id: withdrawalId,
                                 targetName: wth.userName || wth.userId,
                                 amount: wth.amount,
                                 reason: '',
@@ -1272,7 +1275,8 @@ export default function AdminDashboard({
                       </div>
                     )}
                   </div>
-                ))
+                  );
+                })
               )}
             </div>
           </div>
