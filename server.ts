@@ -1794,8 +1794,7 @@ async function startServer() {
     }
   };
 
-  app.post('/api/admin/deposit/approve', verifyAdmin, approveDepositHandler);
-  app.post('/api/admin/approve-deposit', verifyAdmin, approveDepositHandler);
+  app.post('/api/deposit/approve', verifyAdmin, approveDepositHandler);
   app.get('/api/admin/approve-deposit', verifyAdmin, (req, res) => {
     res.status(200).json({ success: true, message: 'Approve endpoint available', route: '/api/admin/approve-deposit' });
   });
