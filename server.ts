@@ -1675,20 +1675,28 @@ async function startServer() {
       if (isMongoConnected) {
         try {
           const depositRecordId = (deposit as any)._id || (deposit as any).id || null;
-          const query = {
-            $or: [
-              ...(depositRecordId ? [{ _id: depositRecordId }] : []),
-              ...(depositRecordId ? [{ id: (deposit as any).id || depositRecordId }] : []),
-              { transactionId: deposit.transactionId },
-              ...(exactTrxId ? [{ transactionId: exactTrxId }] : []),
-            ],
-          };
 
-          persistedDeposit = await DepositModel.findOneAndUpdate(
-            query,
-            { status: 'approved', updatedAt: new Date() },
-            { new: true }
-          );
+          if (depositRecordId) {
+            persistedDeposit = await DepositModel.findByIdAndUpdate(
+              depositRecordId,
+              { status: 'approved', updatedAt: new Date() },
+              { new: true }
+            );
+          } else {
+            const updateResult = await DepositModel.updateOne(
+              { transactionId: deposit.transactionId },
+              { $set: { status: 'approved', updatedAt: new Date() } }
+            );
+
+            if (updateResult.modifiedCount === 0 && updateResult.matchedCount === 0) {
+              return res.status(500).json({
+                success: false,
+                message: 'ডিপোজিট স্ট্যাটাস ডাটাবেজে আপডেট হয়নি।',
+              });
+            }
+
+            persistedDeposit = await DepositModel.findOne({ transactionId: deposit.transactionId }).lean();
+          }
 
           if (!persistedDeposit) {
             return res.status(500).json({
