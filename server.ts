@@ -143,6 +143,17 @@ const depositSchema = new mongoose.Schema({
   rejectionReason: { type: String, default: '' },
 }, { timestamps: true });
 
+const withdrawSchema = new mongoose.Schema({
+  userId: { type: String, required: true },
+  userName: { type: String, default: '' },
+  paymentMethod: { type: String, required: true },
+  amount: { type: Number, required: true },
+  accountNumber: { type: String, required: true },
+  trxId: { type: String, default: '' },
+  status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
+  rejectionReason: { type: String, default: '' },
+}, { timestamps: true });
+
 const paymentSettingsSchema = new mongoose.Schema({
   bkashNumber: { type: String, default: '01888-776655' },
   nagadNumber: { type: String, default: '01777-665544' },
@@ -156,6 +167,7 @@ const paymentSettingsSchema = new mongoose.Schema({
 
 export const UserModel: mongoose.Model<any> = mongoose.models.User || mongoose.model('User', userSchema);
 export const DepositModel: mongoose.Model<any> = mongoose.models.Deposit || mongoose.model('Deposit', depositSchema);
+export const WithdrawModel: mongoose.Model<any> = mongoose.models.Withdraw || mongoose.model('Withdraw', withdrawSchema);
 export const PaymentSettingsModel: mongoose.Model<any> = mongoose.models.PaymentSettings || mongoose.model('PaymentSettings', paymentSettingsSchema);
 
 // ডাটাবেজ কানেকশন ইনিশিয়ালাইজেশন
@@ -1659,32 +1671,44 @@ async function startServer() {
       targetUser.points = (Number(targetUser.points) || 0) + Math.floor(amountToCredit / 5);
       targetUser.updatedAt = new Date().toISOString();
 
+      let persistedDeposit: any = null;
       if (isMongoConnected) {
         try {
+          const depositRecordId = (deposit as any)._id || (deposit as any).id || null;
           const query = {
             $or: [
-              { _id: deposit._id },
-              { id: (deposit as any).id || deposit._id },
+              ...(depositRecordId ? [{ _id: depositRecordId }] : []),
+              ...(depositRecordId ? [{ id: (deposit as any).id || depositRecordId }] : []),
               { transactionId: deposit.transactionId },
               ...(exactTrxId ? [{ transactionId: exactTrxId }] : []),
             ],
           };
 
-          await Promise.all([
-            DepositModel.findOneAndUpdate(
-              query,
-              { status: 'approved', updatedAt: new Date() },
-              { new: true }
-            ),
-            UserModel.findByIdAndUpdate(targetUser._id, {
-              balance: targetUser.balance,
-              points: targetUser.points,
-              totalDeposits: targetUser.totalDeposits,
-              updatedAt: new Date(),
-            }, { new: true }),
-          ]);
+          persistedDeposit = await DepositModel.findOneAndUpdate(
+            query,
+            { status: 'approved', updatedAt: new Date() },
+            { new: true }
+          );
+
+          if (!persistedDeposit) {
+            return res.status(500).json({
+              success: false,
+              message: 'ডিপোজিট স্ট্যাটাস ডাটাবেজে আপডেট হয়নি।',
+            });
+          }
+
+          await UserModel.findByIdAndUpdate(targetUser._id, {
+            balance: targetUser.balance,
+            points: targetUser.points,
+            totalDeposits: targetUser.totalDeposits,
+            updatedAt: new Date(),
+          }, { new: true });
         } catch (e) {
           console.warn('Mongo sync for approved deposit failed:', e);
+          return res.status(500).json({
+            success: false,
+            message: 'ডাটাবেজ আপডেট ব্যর্থ হয়েছে।',
+          });
         }
       }
 
@@ -1695,7 +1719,7 @@ async function startServer() {
         message: 'ডিপোজিট সফলভাবে এপ্রুভ করা হয়েছে এবং ব্যালেন্স যুক্ত হয়েছে।',
         newBalance: targetUser.balance,
         updatedUserBalance: targetUser.balance,
-        deposit,
+        deposit: persistedDeposit || deposit,
       });
     } catch (error: any) {
       return res.status(500).json({ success: false, error: error.message || 'Server error' });
@@ -1756,10 +1780,38 @@ async function startServer() {
         dbUsers[withdraw.userId].totalWithdrawals = (dbUsers[withdraw.userId].totalWithdrawals || 0) + withdraw.amount;
       }
 
+      if (isMongoConnected) {
+        try {
+          const withdrawRecordId = (withdraw as any)._id || (withdraw as any).id || null;
+          const updatedWithdraw = await WithdrawModel.findByIdAndUpdate(
+            withdrawRecordId,
+            { status: 'approved', trxId: generatedTrx, updatedAt: new Date() },
+            { new: true }
+          );
+
+          if (!updatedWithdraw) {
+            return res.status(500).json({
+              success: false,
+              message: 'উইথড্র স্ট্যাটাস ডাটাবেজে আপডেট হয়নি।',
+            });
+          }
+
+          withdraw.trxId = generatedTrx;
+          withdraw.status = 'approved';
+          withdraw.updatedAt = new Date().toISOString();
+        } catch (e) {
+          console.warn('Mongo sync for approved withdrawal failed:', e);
+          return res.status(500).json({
+            success: false,
+            message: 'ডাটাবেজ আপডেট ব্যর্থ হয়েছে।',
+          });
+        }
+      }
+
       // Telegram alert
       sendTelegramNotification(`✅ WITHDRAW APPROVED!\n👤 User: ${withdraw.userName}\n💰 Amount: ৳${withdraw.amount}\n📱 Number: ${withdraw.accountNumber}\n🔢 TrxID: ${generatedTrx}`);
 
-      res.status(200).json({
+      return res.status(200).json({
         success: true,
         message: 'উইথড্র রিকোয়েস্ট সফলভাবে এপ্রুভ করা হয়েছে!',
         withdraw,
