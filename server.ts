@@ -1573,8 +1573,9 @@ app.use(cors());
   const approveDepositHandler = async (req: any, res: any) => {
     try {
       const { depositId } = req.body;
+      const exactDepositId = String(depositId || '').trim();
 
-      const deposit = dbDeposits.find((d) => d._id === depositId || (d as any).id === depositId);
+      const deposit = dbDeposits.find((d) => d._id === exactDepositId || (d as any).id === exactDepositId);
       if (!deposit || deposit.status !== 'pending') {
         return res.status(400).json({
           success: false,
@@ -1582,10 +1583,6 @@ app.use(cors());
         });
       }
 
-      deposit.status = 'approved';
-      deposit.updatedAt = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-      // ইউজারের ওয়ালেটে ব্যালেন্স ক্রেডিট করা
       if (!dbUsers[deposit.userId]) {
         dbUsers[deposit.userId] = {
           _id: deposit.userId,
@@ -1602,30 +1599,45 @@ app.use(cors());
           updatedAt: new Date().toISOString(),
         };
       }
-      dbUsers[deposit.userId].balance += deposit.amount;
-      dbUsers[deposit.userId].totalDeposits = (dbUsers[deposit.userId].totalDeposits || 0) + deposit.amount;
-      dbUsers[deposit.userId].points = (dbUsers[deposit.userId].points || 0) + Math.floor(deposit.amount / 5);
-      dbUsers[deposit.userId].updatedAt = new Date().toISOString();
 
-      broadcastUserBalance(deposit.userId, dbUsers[deposit.userId].balance, { actionType: 'DEPOSIT_APPROVED', amount: deposit.amount });
+      deposit.status = 'approved';
+      deposit.updatedAt = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+      const amountToCredit = Number(deposit.amount) || 0;
+      dbUsers[deposit.userId].balance = Number(dbUsers[deposit.userId].balance || 0) + amountToCredit;
+      dbUsers[deposit.userId].totalDeposits = (Number(dbUsers[deposit.userId].totalDeposits) || 0) + amountToCredit;
+      dbUsers[deposit.userId].points = (Number(dbUsers[deposit.userId].points) || 0) + Math.floor(amountToCredit / 5);
+      dbUsers[deposit.userId].updatedAt = new Date().toISOString();
 
       if (isMongoConnected) {
         try {
-          await UserModel.findByIdAndUpdate(deposit.userId, {
-            balance: dbUsers[deposit.userId].balance,
-            points: dbUsers[deposit.userId].points,
-          });
-        } catch (e) {}
+          await Promise.all([
+            DepositModel.findByIdAndUpdate(deposit._id, {
+              status: 'approved',
+              updatedAt: new Date(),
+            }, { new: true }),
+            UserModel.findByIdAndUpdate(deposit.userId, {
+              balance: dbUsers[deposit.userId].balance,
+              points: dbUsers[deposit.userId].points,
+              totalDeposits: dbUsers[deposit.userId].totalDeposits,
+              updatedAt: new Date(),
+            }, { new: true }),
+          ]);
+        } catch (e) {
+          console.warn('Mongo sync for approved deposit failed:', e);
+        }
       }
 
-      res.status(200).json({
+      broadcastUserBalance(deposit.userId, dbUsers[deposit.userId].balance, { actionType: 'DEPOSIT_APPROVED', amount: amountToCredit });
+
+      return res.status(200).json({
         success: true,
         message: 'ডিপোজিট সফলভাবে এপ্রুভ করা হয়েছে এবং ব্যালেন্স যুক্ত হয়েছে।',
         newBalance: dbUsers[deposit.userId].balance,
         deposit,
       });
     } catch (error: any) {
-      res.status(500).json({ success: false, error: error.message || 'Server error' });
+      return res.status(500).json({ success: false, error: error.message || 'Server error' });
     }
   };
 

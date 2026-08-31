@@ -757,58 +757,10 @@ export default function App() {
     const target = depositRequests.find((r) => r.id === depositId || r._id === depositId);
     if (!target) return;
 
+    const exactDepositId = String(target._id || target.id || depositId);
     const approvedAmount = Number(target.amount) || 0;
     const bonusAmount = Number(target.bonusAmount || 0);
     const totalCredited = approvedAmount + bonusAmount;
-
-    setWallet((prev) => ({
-      ...prev,
-      balance: prev.balance + totalCredited,
-      points: prev.points + Math.floor(totalCredited / 5),
-    }));
-
-    setDepositRequests((prev) =>
-      prev.map((r) =>
-        r.id === depositId || r._id === depositId
-          ? { ...r, status: 'approved', updatedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }
-          : r
-      )
-    );
-
-    setTransactions((prev) =>
-      prev.map((tx) =>
-        tx.trxId === target.transactionId ? { ...tx, status: 'COMPLETED' } : tx
-      )
-    );
-
-    const targetUserId = target.userId;
-    const persistedProfiles: User[] = [
-      readPersistentUser(),
-      parseJsonValue(localStorage.getItem('aviator_user')),
-      parseJsonValue(localStorage.getItem('user_profile')),
-    ].filter((value): value is User => isValidStoredUser(value));
-
-    const matchingProfile = persistedProfiles.find((user) => (user._id || user.id) === targetUserId) || null;
-    if (matchingProfile) {
-      const nextBalance = (Number(matchingProfile.balance) || 0) + approvedAmount;
-      const updatedProfile: User = {
-        ...matchingProfile,
-        balance: nextBalance,
-        points: (Number(matchingProfile.points) || 0) + Math.floor(approvedAmount / 5),
-        updatedAt: new Date().toISOString(),
-      };
-
-      writePersistentUser(updatedProfile);
-      writePersistentBalance(nextBalance);
-      localStorage.setItem('user_profile', JSON.stringify(updatedProfile));
-      localStorage.setItem('aviator_user', JSON.stringify(updatedProfile));
-      localStorage.setItem(PERSISTENT_USER_KEY, JSON.stringify(updatedProfile));
-
-      if ((currentUser?._id || currentUser?.id) === targetUserId) {
-        setCurrentUser(updatedProfile);
-        setWallet((prev) => ({ ...prev, balance: nextBalance, points: updatedProfile.points ?? prev.points }));
-      }
-    }
 
     try {
       const activeToken = token || localStorage.getItem('user_token') || localStorage.getItem('auth_token');
@@ -818,19 +770,72 @@ export default function App() {
           'Content-Type': 'application/json',
           ...(activeToken ? { Authorization: `Bearer ${activeToken}` } : {}),
         },
-        body: JSON.stringify({ depositId }),
+        body: JSON.stringify({ depositId: exactDepositId }),
       });
 
-      if (!response.ok) {
-        setDepositRequests((prev) =>
-          prev.map((r) =>
-            r.id === depositId || r._id === depositId
-              ? { ...r, status: 'pending' }
-              : r
-          )
-        );
+      const data = await response.json().catch(() => null);
+
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.message || 'Deposit approval failed');
       }
-    } catch {}
+
+      setWallet((prev) => ({
+        ...prev,
+        balance: prev.balance + totalCredited,
+        points: prev.points + Math.floor(totalCredited / 5),
+      }));
+
+      setDepositRequests((prev) =>
+        prev.map((r) =>
+          (r.id === exactDepositId || r._id === exactDepositId)
+            ? { ...r, status: 'approved', updatedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }
+            : r
+        )
+      );
+
+      setTransactions((prev) =>
+        prev.map((tx) =>
+          tx.trxId === target.transactionId ? { ...tx, status: 'COMPLETED' } : tx
+        )
+      );
+
+      const targetUserId = target.userId;
+      const persistedProfiles: User[] = [
+        readPersistentUser(),
+        parseJsonValue(localStorage.getItem('aviator_user')),
+        parseJsonValue(localStorage.getItem('user_profile')),
+      ].filter((value): value is User => isValidStoredUser(value));
+
+      const matchingProfile = persistedProfiles.find((user) => (user._id || user.id) === targetUserId) || null;
+      if (matchingProfile) {
+        const nextBalance = (Number(matchingProfile.balance) || 0) + approvedAmount;
+        const updatedProfile: User = {
+          ...matchingProfile,
+          balance: nextBalance,
+          points: (Number(matchingProfile.points) || 0) + Math.floor(approvedAmount / 5),
+          updatedAt: new Date().toISOString(),
+        };
+
+        writePersistentUser(updatedProfile);
+        writePersistentBalance(nextBalance);
+        localStorage.setItem('user_profile', JSON.stringify(updatedProfile));
+        localStorage.setItem('aviator_user', JSON.stringify(updatedProfile));
+        localStorage.setItem(PERSISTENT_USER_KEY, JSON.stringify(updatedProfile));
+
+        if ((currentUser?._id || currentUser?.id) === targetUserId) {
+          setCurrentUser(updatedProfile);
+          setWallet((prev) => ({ ...prev, balance: nextBalance, points: updatedProfile.points ?? prev.points }));
+        }
+      }
+    } catch {
+      setDepositRequests((prev) =>
+        prev.map((r) =>
+          (r.id === depositId || r._id === depositId)
+            ? { ...r, status: 'pending' }
+            : r
+        )
+      );
+    }
   };
 
   const handleRejectDeposit = async (depositId: string, reason?: string) => {

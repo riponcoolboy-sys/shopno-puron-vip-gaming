@@ -353,13 +353,13 @@ export default function AdminDashboard({
   // Approve Deposit Handler
   const handleApproveDeposit = async (id: string) => {
     sounds.playWin();
-    setDeposits((prev) => prev.map((d) => (d.id === id ? { ...d, status: 'approved', updatedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) } : d)));
-    showToast('ডিপোজিট সফলভাবে অনুমোদিত হয়েছে এবং প্লেয়ার ব্যালেন্স ক্রেডিট করা হয়েছে!', 'success');
-
     try {
       await Promise.resolve(propApproveDeposit(id));
       await fetchAllAdminData();
-    } catch {}
+      showToast('ডিপোজিট সফলভাবে অনুমোদিত হয়েছে এবং প্লেয়ার ব্যালেন্স ক্রেডিট করা হয়েছে!', 'success');
+    } catch {
+      showToast('ডিপোজিট এপ্রুভ ব্যর্থ হয়েছে।', 'error');
+    }
   };
 
   // Reject Deposit/Withdraw Confirm
