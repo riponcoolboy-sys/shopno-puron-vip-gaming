@@ -379,16 +379,17 @@ export default function AdminDashboard({
 
     sounds.playWin();
 
-    setDeposits((prev) =>
-      prev.map((d) => (
-        matchesDeposit(d)
-          ? { ...d, status: 'approved', updatedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }
-          : d
-      ))
-    );
-
     try {
       await Promise.resolve(propApproveDeposit(exactId, exactTrxId));
+
+      setDeposits((prev) =>
+        prev.map((d) => (
+          matchesDeposit(d)
+            ? { ...d, status: 'approved', updatedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }
+            : d
+        ))
+      );
+
       await fetchAllAdminData();
       showToast('ডিপোজিট সফলভাবে অনুমোদিত হয়েছে এবং প্লেয়ার ব্যালেন্স ক্রেডিট করা হয়েছে!', 'success');
     } catch {
