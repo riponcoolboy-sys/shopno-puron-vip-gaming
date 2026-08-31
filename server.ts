@@ -497,7 +497,22 @@ export const verifyAdmin = (req: express.Request, res: express.Response, next: e
 
 async function startServer() {
   const app = express();
-app.use(cors());
+  const corsOptions = {
+    origin: '*',
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-csrf-token', 'X-CSRF-Token'],
+    credentials: false,
+  };
+
+  app.use(cors(corsOptions));
+  app.options('*', cors(corsOptions));
+  app.use((req, res, next) => {
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(204);
+    }
+    next();
+  });
+
   const PORT = 3000;
   const httpServer = http.createServer(app);
 
@@ -1016,7 +1031,15 @@ app.use(cors());
         try { user = await UserModel.findById(queryUserId); } catch { /* username or phone lookup below */ }
         if (!user) user = await UserModel.findOne({ $or: [{ username: queryUserId.toLowerCase() }, { phone: queryUserId }] });
       }
-      if (!user) return res.status(404).json({ success: false, message: 'ইউজার পাওয়া যায়নি!', balance: 0 });
+      if (!user) {
+        return res.status(200).json({
+          success: false,
+          message: 'ইউজার পাওয়া যায়নি!',
+          balance: 0,
+          user: null,
+          serverTime: Date.now(),
+        });
+      }
 
       const safeUser = user as any;
 
@@ -1685,6 +1708,9 @@ app.use(cors());
 
   app.post('/api/admin/deposit/approve', verifyAdmin, approveDepositHandler);
   app.post('/api/admin/approve-deposit', verifyAdmin, approveDepositHandler);
+  app.get('/api/admin/approve-deposit', verifyAdmin, (req, res) => {
+    res.status(200).json({ success: true, message: 'Approve endpoint available', route: '/api/admin/approve-deposit' });
+  });
 
   // ==========================================
   // [ADMIN] ৫. ডিপোজিট রিজেক্ট করা (verifyAdmin)
