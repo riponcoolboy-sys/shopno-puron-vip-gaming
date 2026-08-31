@@ -514,6 +514,41 @@ export default function App() {
     sounds.setMuted(nextMute);
   };
 
+  const createPreviewPlayerUser = useCallback((): User => ({
+    _id: 'preview_player_session',
+    id: 'preview_player_session',
+    username: 'preview_player',
+    phone: '01700000000',
+    role: 'player',
+    balance: wallet.balance,
+    vipTier: wallet.vipTier,
+    points: wallet.points,
+  }), [wallet.balance, wallet.points, wallet.vipTier]);
+
+  const ensurePlayerLobbySession = useCallback(() => {
+    const previewUser = createPreviewPlayerUser();
+    const previewToken = 'preview_player_session_token';
+
+    secureStorage.setItem('user_token', previewToken);
+    secureStorage.setItem('auth_token', previewToken);
+    secureStorage.setItem('aviator_user', previewUser);
+    secureStorage.setItem('user_profile', previewUser);
+    localStorage.setItem('user_token', previewToken);
+    localStorage.setItem('auth_token', previewToken);
+    localStorage.setItem('user_role', 'player');
+    localStorage.setItem('user_profile', JSON.stringify(previewUser));
+    writePersistentUser(previewUser);
+    writePersistentBalance(previewUser.balance ?? wallet.balance ?? 0);
+
+    setToken(previewToken);
+    setRole('player');
+    setIsAdmin(false);
+    setAdminUser(null);
+    setCurrentUser(previewUser);
+
+    return previewUser;
+  }, [createPreviewPlayerUser, wallet.balance]);
+
   const handleLoginSuccess = (user: User | string, userRoleParam?: string) => {
     let tok = '';
     let resolvedRole: 'player' | 'admin' = 'player';
@@ -889,9 +924,35 @@ export default function App() {
           onRejectDeposit={handleRejectDeposit}
           onLogout={handleLogout}
           onSwitchToLobby={() => {
+            const nextPlayerUser =
+              currentUser && currentUser.role === 'player'
+                ? currentUser
+                : adminUser && adminUser.role === 'player'
+                  ? adminUser
+                  : createPreviewPlayerUser();
+
             setIsAdmin(false);
             setAdminUser(null);
             setRole('player');
+            setCurrentUser(nextPlayerUser);
+
+            if (!token) {
+              const previewToken = 'preview_player_session_token';
+              secureStorage.setItem('user_token', previewToken);
+              secureStorage.setItem('auth_token', previewToken);
+              localStorage.setItem('user_token', previewToken);
+              localStorage.setItem('auth_token', previewToken);
+              localStorage.setItem('user_role', 'player');
+              setToken(previewToken);
+            }
+
+            if (nextPlayerUser) {
+              secureStorage.setItem('aviator_user', nextPlayerUser);
+              secureStorage.setItem('user_profile', nextPlayerUser);
+              localStorage.setItem('user_profile', JSON.stringify(nextPlayerUser));
+              writePersistentUser(nextPlayerUser);
+              writePersistentBalance(nextPlayerUser.balance ?? wallet.balance ?? 0);
+            }
           }}
         />
         {showSupportModal && (
