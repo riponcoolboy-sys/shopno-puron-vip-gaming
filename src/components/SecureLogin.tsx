@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Lock, ShieldCheck, Plane, Crown, Sparkles, User as UserIcon, Phone, Eye, EyeOff, CheckCircle2, AlertCircle, AlertTriangle } from 'lucide-react';
 import { sounds } from '../utils/audio';
 import { User } from '../types';
@@ -160,6 +160,7 @@ export default function SecureLogin({ onLoginSuccess, onOpenSupport }: SecureLog
   const [adminPassword, setAdminPassword] = useState('');
   const [adminLoading, setAdminLoading] = useState(false);
   const [adminError, setAdminError] = useState<string | null>(null);
+  const adminAuthenticatedRef = useRef(false);
 
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -238,6 +239,7 @@ export default function SecureLogin({ onLoginSuccess, onOpenSupport }: SecureLog
 
         setShowAdminModal(false);
         setAdminPassword('');
+        adminAuthenticatedRef.current = true;
 
         if (onLoginSuccess) {
           onLoginSuccess(adminUser, 'admin');
@@ -277,6 +279,7 @@ export default function SecureLogin({ onLoginSuccess, onOpenSupport }: SecureLog
 
         setShowAdminModal(false);
         setAdminPassword('');
+        adminAuthenticatedRef.current = true;
         if (onLoginSuccess) {
           onLoginSuccess(adminUser, 'admin');
         }
@@ -350,7 +353,7 @@ export default function SecureLogin({ onLoginSuccess, onOpenSupport }: SecureLog
           localStorage.setItem('user_role', data.user?.role || 'player');
 
           setTimeout(() => {
-            if (onLoginSuccess) {
+            if (!adminAuthenticatedRef.current && onLoginSuccess) {
               onLoginSuccess(data.user, data.user?.role || 'player');
             }
           }, 300);
@@ -398,7 +401,7 @@ export default function SecureLogin({ onLoginSuccess, onOpenSupport }: SecureLog
           localStorage.setItem('user_role', data.user?.role || 'player');
 
           setTimeout(() => {
-            if (onLoginSuccess) {
+            if (!adminAuthenticatedRef.current && onLoginSuccess) {
               onLoginSuccess(data.user, data.user?.role || 'player');
             }
           }, 400);

@@ -153,6 +153,8 @@ export default function App() {
 
   const [token, setToken] = useState<string | null>(null);
   const [role, setRole] = useState<'player' | 'admin' | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [adminUser, setAdminUser] = useState<User | null>(null);
   const [tamperWarning, setTamperWarning] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
 
@@ -284,6 +286,8 @@ export default function App() {
         setToken(savedToken);
         setRole(savedRole || savedUser.role);
         setCurrentUser(savedUser);
+        setIsAdmin(savedUser.role === 'admin' || savedRole === 'admin');
+        setAdminUser(savedUser.role === 'admin' || savedRole === 'admin' ? savedUser : null);
         setWallet((prev) => ({ ...prev, balance: savedUser.balance }));
         writePersistentBalance(savedUser.balance);
         return;
@@ -292,12 +296,16 @@ export default function App() {
       clearBrokenAuthState();
       setToken(null);
       setRole(null);
+      setIsAdmin(false);
+      setAdminUser(null);
       setCurrentUser(null);
     } catch (err) {
       console.error('Storage error:', err);
       clearBrokenAuthState();
       setToken(null);
       setRole(null);
+      setIsAdmin(false);
+      setAdminUser(null);
       setCurrentUser(null);
     }
   }, []);
@@ -538,6 +546,9 @@ export default function App() {
     }
 
     if (nextUser && isValidStoredUser(nextUser)) {
+      const nextIsAdmin = resolvedRole === 'admin' || nextUser.role === 'admin';
+      setIsAdmin(nextIsAdmin);
+      setAdminUser(nextIsAdmin ? nextUser : null);
       setCurrentUser(nextUser);
       if (typeof nextUser.balance === 'number') {
         setWallet((prev) => ({ ...prev, balance: nextUser.balance }));
@@ -551,6 +562,8 @@ export default function App() {
       clearBrokenAuthState();
       setToken(null);
       setRole(null);
+      setIsAdmin(false);
+      setAdminUser(null);
       setCurrentUser(null);
       return;
     }
@@ -583,6 +596,9 @@ export default function App() {
     clearBrokenAuthState();
     setToken(null);
     setRole(null);
+    setIsAdmin(false);
+    setAdminUser(null);
+    setCurrentUser(null);
   };
 
   const handleUpdateBalance = (
@@ -849,7 +865,70 @@ export default function App() {
     setTransactions((prev) => [newTx, ...prev]);
   };
 
-  // ২. যদি টোকেন না থাকে, তবে অন্য মোবাইলে লিংক খুললেই আগে লগইন পেজ দেখাবে
+  const renderAdminDashboard = (user: User) => (
+    <LoggedInRenderBoundary>
+      <div className="relative min-h-screen">
+        <AdminDashboard
+          currentUser={user}
+          paymentSettings={paymentSettings}
+          depositRequests={depositRequests}
+          onUpdatePaymentSettings={handleUpdatePaymentSettings}
+          onApproveDeposit={handleApproveDeposit}
+          onRejectDeposit={handleRejectDeposit}
+          onLogout={handleLogout}
+          onSwitchToLobby={() => {
+            setIsAdmin(false);
+            setAdminUser(null);
+            setRole('player');
+          }}
+        />
+        {showSupportModal && (
+          <SupportModal onClose={() => setShowSupportModal(false)} />
+        )}
+      </div>
+    </LoggedInRenderBoundary>
+  );
+
+  // Admin authentication always takes precedence over player authentication.
+  if (isAdmin) {
+    return renderAdminDashboard(adminUser || currentUser!);
+  }
+
+  if (currentUser) {
+    return (
+      <LoggedInRenderBoundary>
+        <div className="relative min-h-screen">
+        {tamperWarning && (
+          <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50 bg-rose-950/95 border border-rose-500/50 text-rose-200 px-4 py-2.5 rounded-xl shadow-2xl flex items-center gap-2 text-xs font-semibold backdrop-blur-md animate-bounce">
+            <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+            <span>{tamperWarning}</span>
+          </div>
+        )}
+        <UserLobby
+          username={currentUser.username || 'Player'}
+          currentUser={currentUser}
+          wallet={wallet}
+          transactions={transactions}
+          paymentSettings={paymentSettings}
+          depositRequests={depositRequests}
+          isMuted={isMuted}
+          onToggleMute={handleToggleMute}
+          onLogout={handleLogout}
+          onUpdateBalance={handleUpdateBalance}
+          onRequestDeposit={handleRequestDeposit}
+          onWithdraw={handleWithdraw}
+          onClaimVipReward={handleClaimVipReward}
+          onOpenAdmin={undefined}
+        />
+        {showSupportModal && (
+          <SupportModal onClose={() => setShowSupportModal(false)} />
+        )}
+        </div>
+      </LoggedInRenderBoundary>
+    );
+  }
+
+  // If there is no authenticated user, show the login page.
   if (!token || !currentUser) {
     return (
       <>
@@ -882,54 +961,5 @@ export default function App() {
     );
   }
 
-  // ৩. রোল অনুযায়ী আলাদা ড্যাশবোর্ড দেখাবে
-  return (
-    <LoggedInRenderBoundary>
-      <div className="relative min-h-screen">
-      {tamperWarning && (
-        <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50 bg-rose-950/95 border border-rose-500/50 text-rose-200 px-4 py-2.5 rounded-xl shadow-2xl flex items-center gap-2 text-xs font-semibold backdrop-blur-md animate-bounce">
-          <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
-          <span>{tamperWarning}</span>
-        </div>
-      )}
-      {role === 'admin' ? (
-        <AdminDashboard
-          currentUser={currentUser}
-          paymentSettings={paymentSettings}
-          depositRequests={depositRequests}
-          onUpdatePaymentSettings={handleUpdatePaymentSettings}
-          onApproveDeposit={handleApproveDeposit}
-          onRejectDeposit={handleRejectDeposit}
-          onLogout={handleLogout}
-          onSwitchToLobby={() => setRole('player')}
-        />
-      ) : (
-        <UserLobby
-          username={currentUser?.username || 'Player'}
-          currentUser={currentUser}
-          wallet={wallet}
-          transactions={transactions}
-          paymentSettings={paymentSettings}
-          depositRequests={depositRequests}
-          isMuted={isMuted}
-          onToggleMute={handleToggleMute}
-          onLogout={handleLogout}
-          onUpdateBalance={handleUpdateBalance}
-          onRequestDeposit={handleRequestDeposit}
-          onWithdraw={handleWithdraw}
-          onClaimVipReward={handleClaimVipReward}
-          onOpenAdmin={
-            currentUser.role === 'admin'
-              ? () => setRole('admin')
-              : undefined
-          }
-        />
-      )}
-
-      {showSupportModal && (
-        <SupportModal onClose={() => setShowSupportModal(false)} />
-      )}
-      </div>
-    </LoggedInRenderBoundary>
-  );
+  return null;
 }
