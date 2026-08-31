@@ -47,7 +47,11 @@ export default function Header({
 }: HeaderProps) {
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const isAdmin = currentUser?.role === 'admin';
-const displayBalance = (() => {
+  const canReturnToAdmin = Boolean(
+    onOpenAdmin &&
+      (isAdmin || localStorage.getItem('isAdmin') === 'true' || localStorage.getItem('SHOPNO_PURON_ADMIN_USER_V2'))
+  );
+  const displayBalance = (() => {
     try {
       const walletObjStr = localStorage.getItem('shopno_puron_wallet');
       if (walletObjStr) {
@@ -146,6 +150,20 @@ const displayBalance = (() => {
         >
           {isMuted ? <VolumeX size={16} /> : <Volume2 size={16} />}
         </button>
+
+        {canReturnToAdmin && (
+          <button
+            type="button"
+            onClick={() => {
+              sounds.playClick();
+              onOpenAdmin?.();
+            }}
+            className="hidden sm:inline-flex items-center gap-1.5 rounded-full border border-purple-500/60 bg-gradient-to-r from-purple-950/80 to-violet-900/80 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.16em] text-purple-200 shadow-[0_8px_24px_rgba(147,51,234,0.25)]"
+          >
+            <Shield size={12} />
+            <span>এডমিন</span>
+          </button>
+        )}
 
         {/* User Avatar with Profile Dropdown */}
         <div className="relative">

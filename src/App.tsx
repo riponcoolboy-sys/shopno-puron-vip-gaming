@@ -754,10 +754,12 @@ export default function App() {
   };
 
   const handleApproveDeposit = async (depositId: string) => {
-    const target = depositRequests.find((r) => r.id === depositId);
+    const target = depositRequests.find((r) => r.id === depositId || r._id === depositId);
     if (!target) return;
 
-    const totalCredited = target.amount + (target.bonusAmount || 0);
+    const approvedAmount = Number(target.amount) || 0;
+    const bonusAmount = Number(target.bonusAmount || 0);
+    const totalCredited = approvedAmount + bonusAmount;
 
     setWallet((prev) => ({
       ...prev,
@@ -766,7 +768,11 @@ export default function App() {
     }));
 
     setDepositRequests((prev) =>
-      prev.map((r) => (r.id === depositId ? { ...r, status: 'approved' } : r))
+      prev.map((r) =>
+        r.id === depositId || r._id === depositId
+          ? { ...r, status: 'approved', updatedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }
+          : r
+      )
     );
 
     setTransactions((prev) =>
@@ -775,9 +781,38 @@ export default function App() {
       )
     );
 
+    const targetUserId = target.userId;
+    const persistedProfiles: User[] = [
+      readPersistentUser(),
+      parseJsonValue(localStorage.getItem('aviator_user')),
+      parseJsonValue(localStorage.getItem('user_profile')),
+    ].filter((value): value is User => isValidStoredUser(value));
+
+    const matchingProfile = persistedProfiles.find((user) => (user._id || user.id) === targetUserId) || null;
+    if (matchingProfile) {
+      const nextBalance = (Number(matchingProfile.balance) || 0) + approvedAmount;
+      const updatedProfile: User = {
+        ...matchingProfile,
+        balance: nextBalance,
+        points: (Number(matchingProfile.points) || 0) + Math.floor(approvedAmount / 5),
+        updatedAt: new Date().toISOString(),
+      };
+
+      writePersistentUser(updatedProfile);
+      writePersistentBalance(nextBalance);
+      localStorage.setItem('user_profile', JSON.stringify(updatedProfile));
+      localStorage.setItem('aviator_user', JSON.stringify(updatedProfile));
+      localStorage.setItem(PERSISTENT_USER_KEY, JSON.stringify(updatedProfile));
+
+      if ((currentUser?._id || currentUser?.id) === targetUserId) {
+        setCurrentUser(updatedProfile);
+        setWallet((prev) => ({ ...prev, balance: nextBalance, points: updatedProfile.points ?? prev.points }));
+      }
+    }
+
     try {
       const activeToken = token || localStorage.getItem('user_token') || localStorage.getItem('auth_token');
-      await fetch(apiUrl('/api/admin/deposit/approve'), {
+      const response = await fetch(apiUrl('/api/admin/deposit/approve'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -785,6 +820,16 @@ export default function App() {
         },
         body: JSON.stringify({ depositId }),
       });
+
+      if (!response.ok) {
+        setDepositRequests((prev) =>
+          prev.map((r) =>
+            r.id === depositId || r._id === depositId
+              ? { ...r, status: 'pending' }
+              : r
+          )
+        );
+      }
     } catch {}
   };
 
@@ -932,9 +977,12 @@ export default function App() {
                   : createPreviewPlayerUser();
 
             setIsAdmin(false);
-            setAdminUser(null);
             setRole('player');
             setCurrentUser(nextPlayerUser);
+            localStorage.setItem('isAdmin', 'true');
+            if (adminUser) {
+              localStorage.setItem(ADMIN_USER_KEY, JSON.stringify(adminUser));
+            }
 
             if (!token) {
               const previewToken = 'preview_player_session_token';
@@ -991,7 +1039,34 @@ export default function App() {
           onRequestDeposit={handleRequestDeposit}
           onWithdraw={handleWithdraw}
           onClaimVipReward={handleClaimVipReward}
-          onOpenAdmin={undefined}
+          onOpenAdmin={() => {
+            const adminSessionUser =
+              adminUser ||
+              (localStorage.getItem(ADMIN_USER_KEY) ? parseJsonValue(localStorage.getItem(ADMIN_USER_KEY)) : null) ||
+              (localStorage.getItem('isAdmin') === 'true' && currentUser && currentUser.role === 'admin' ? currentUser : null);
+
+            if (adminSessionUser && isValidStoredUser(adminSessionUser)) {
+              setIsAdmin(true);
+              setAdminUser(adminSessionUser);
+              setCurrentUser(null);
+              setRole('admin');
+              localStorage.setItem('isAdmin', 'true');
+              localStorage.setItem(ADMIN_USER_KEY, JSON.stringify(adminSessionUser));
+              return;
+            }
+
+            if (adminUser) {
+              setIsAdmin(true);
+              setCurrentUser(null);
+              setRole('admin');
+              localStorage.setItem('isAdmin', 'true');
+              return;
+            }
+
+            setIsAdmin(false);
+            setCurrentUser(currentUser ?? createPreviewPlayerUser());
+            setRole('player');
+          }}
         />
         {showSupportModal && (
           <SupportModal onClose={() => setShowSupportModal(false)} />

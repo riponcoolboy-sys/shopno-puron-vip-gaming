@@ -54,7 +54,7 @@ interface AdminDashboardProps {
   paymentSettings: PaymentSettings;
   depositRequests: DepositRequest[];
   onUpdatePaymentSettings: (settings: PaymentSettings) => void;
-  onApproveDeposit: (depositId: string) => void;
+  onApproveDeposit: (depositId: string) => Promise<void> | void;
   onRejectDeposit: (depositId: string, reason?: string) => void;
   onLogout: () => void;
   onSwitchToLobby?: () => void;
@@ -353,21 +353,12 @@ export default function AdminDashboard({
   // Approve Deposit Handler
   const handleApproveDeposit = async (id: string) => {
     sounds.playWin();
-    propApproveDeposit(id);
-    setDeposits((prev) => prev.map((d) => (d.id === id ? { ...d, status: 'approved' } : d)));
+    setDeposits((prev) => prev.map((d) => (d.id === id ? { ...d, status: 'approved', updatedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) } : d)));
     showToast('ডিপোজিট সফলভাবে অনুমোদিত হয়েছে এবং প্লেয়ার ব্যালেন্স ক্রেডিট করা হয়েছে!', 'success');
 
-    const token = localStorage.getItem('user_token') || localStorage.getItem('auth_token');
     try {
-      await fetch(apiUrl('/api/admin/deposit/approve'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({ depositId: id }),
-      });
-      fetchAllAdminData();
+      await Promise.resolve(propApproveDeposit(id));
+      await fetchAllAdminData();
     } catch {}
   };
 
