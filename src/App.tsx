@@ -826,7 +826,7 @@ export default function App() {
 
     try {
       const activeToken = token || localStorage.getItem('user_token') || localStorage.getItem('auth_token');
-      const response = await fetch(apiUrl('/api/admin/approve-deposit'), {
+      const response = await fetch(apiUrl('/api/deposit/approve'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
