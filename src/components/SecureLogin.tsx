@@ -7,6 +7,7 @@ import { sanitizeInput, authRateLimiter, secureStorage } from '../utils/security
 // Render ব্যাকএন্ডের মূল URL
 const API_BASE_URL = 'https://shopno-puron-vip-backend.onrender.com';
 const PERSISTENT_USER_KEY = 'SHOPNO_PURON_USER_V2';
+const ADMIN_USER_KEY = 'SHOPNO_PURON_ADMIN_USER_V2';
 
 const isValidPlayerUser = (value: any): value is User => {
   if (!value || typeof value !== 'object') return false;
@@ -38,6 +39,15 @@ const persistPlayerUser = (value: unknown): value is User => {
     return false;
   }
 };
+
+const normalizePlayerUser = (value: any, fallbackUsername: string): User => ({
+  ...value,
+  id: value?.id || value?._id || `usr_${Date.now()}`,
+  username: String(value?.username || fallbackUsername).trim(),
+  phone: String(value?.phone || '01700000000'),
+  role: 'player',
+  balance: Number.isFinite(Number(value?.balance)) ? Number(value.balance) : 0,
+});
 
 interface SecureLoginProps {
   onLoginSuccess?: (user: User | any, userRole?: string) => void;
@@ -228,14 +238,13 @@ export default function SecureLogin({ onLoginSuccess, onOpenSupport }: SecureLog
         secureStorage.setItem('user_token', data.token);
         secureStorage.setItem('auth_token', data.token);
         secureStorage.setItem('user_role', 'admin');
-        secureStorage.setItem('user_profile', adminUser);
+        secureStorage.setItem(ADMIN_USER_KEY, adminUser);
 
         localStorage.setItem('admin_token', data.token);
         localStorage.setItem('user_token', data.token);
         localStorage.setItem('auth_token', data.token);
         localStorage.setItem('user_role', 'admin');
-        localStorage.setItem('SHOPNO_PURON_USER_V2', JSON.stringify(adminUser));
-        localStorage.setItem('user_profile', JSON.stringify(adminUser));
+        localStorage.setItem(ADMIN_USER_KEY, JSON.stringify(adminUser));
 
         setShowAdminModal(false);
         setAdminPassword('');
@@ -269,13 +278,13 @@ export default function SecureLogin({ onLoginSuccess, onOpenSupport }: SecureLog
         secureStorage.setItem('user_token', token);
         secureStorage.setItem('auth_token', token);
         secureStorage.setItem('user_role', 'admin');
-        secureStorage.setItem('user_profile', adminUser);
+        secureStorage.setItem(ADMIN_USER_KEY, adminUser);
 
         localStorage.setItem('admin_token', token);
         localStorage.setItem('user_token', token);
         localStorage.setItem('auth_token', token);
         localStorage.setItem('user_role', 'admin');
-        localStorage.setItem('user_profile', JSON.stringify(adminUser));
+        localStorage.setItem(ADMIN_USER_KEY, JSON.stringify(adminUser));
 
         setShowAdminModal(false);
         setAdminPassword('');
@@ -340,7 +349,8 @@ export default function SecureLogin({ onLoginSuccess, onOpenSupport }: SecureLog
           authRateLimiter.reset();
           setSuccessMsg(t.loginSuccess);
 
-          if (!persistPlayerUser(data.user)) {
+          const playerUser = normalizePlayerUser(data.user, cleanUsername);
+          if (!persistPlayerUser(playerUser)) {
             setErrorMsg(lang === 'bn' ? 'অবৈধ ব্যবহারকারী তথ্য পাওয়া গেছে' : 'Invalid user session received');
             return;
           }
@@ -350,13 +360,15 @@ export default function SecureLogin({ onLoginSuccess, onOpenSupport }: SecureLog
             localStorage.setItem('user_token', data.token);
             localStorage.setItem('auth_token', data.token);
           }
-          localStorage.setItem('user_role', data.user?.role || 'player');
+          localStorage.setItem('user_role', 'player');
 
-          setTimeout(() => {
+          try {
             if (!adminAuthenticatedRef.current && onLoginSuccess) {
-              onLoginSuccess(data.user, data.user?.role || 'player');
+              onLoginSuccess(playerUser, 'player');
             }
-          }, 300);
+          } catch (callbackError) {
+            setErrorMsg(lang === 'bn' ? 'লগইন সম্পন্ন করা যায়নি' : 'Login could not be completed');
+          }
         } else {
           const rateUpdate = authRateLimiter.recordFailedAttempt();
           if (rateUpdate.isLocked) {
@@ -388,7 +400,8 @@ export default function SecureLogin({ onLoginSuccess, onOpenSupport }: SecureLog
           authRateLimiter.reset();
           setSuccessMsg(t.regSuccess);
 
-          if (!persistPlayerUser(data.user)) {
+          const playerUser = normalizePlayerUser(data.user, cleanUsername);
+          if (!persistPlayerUser(playerUser)) {
             setErrorMsg(lang === 'bn' ? 'অবৈধ ব্যবহারকারী তথ্য পাওয়া গেছে' : 'Invalid user session received');
             return;
           }
@@ -398,13 +411,15 @@ export default function SecureLogin({ onLoginSuccess, onOpenSupport }: SecureLog
             localStorage.setItem('user_token', data.token);
             localStorage.setItem('auth_token', data.token);
           }
-          localStorage.setItem('user_role', data.user?.role || 'player');
+          localStorage.setItem('user_role', 'player');
 
-          setTimeout(() => {
+          try {
             if (!adminAuthenticatedRef.current && onLoginSuccess) {
-              onLoginSuccess(data.user, data.user?.role || 'player');
+              onLoginSuccess(playerUser, 'player');
             }
-          }, 400);
+          } catch (callbackError) {
+            setErrorMsg(lang === 'bn' ? 'রেজিস্ট্রেশন সম্পন্ন করা যায়নি' : 'Registration could not be completed');
+          }
         } else {
           setErrorMsg(data.message || (lang === 'bn' ? 'রেজিস্ট্রেশন সম্পন্ন করা সম্ভব হয়নি' : 'Registration could not be completed'));
         }

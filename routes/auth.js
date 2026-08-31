@@ -9,6 +9,7 @@ const User = require('../models/User'); // আপনার MongoDB User Schema
 router.post('/api/auth/register', async (req, res) => {
   try {
     const { username, password } = req.body;
+    const normalizedUsername = username?.trim().toLowerCase().replace(/\s+/g, '');
 
     if (!username || !password) {
       return res.status(400).json({ success: false, message: "ইউজারনেম এবং পাসওয়ার্ড আবশ্যক!" });
@@ -16,7 +17,12 @@ router.post('/api/auth/register', async (req, res) => {
 
     // ইউজারনেম আগে থেকেই আছে কি না চেক
     if (User && typeof User.findOne === 'function') {
-      const existingUser = await User.findOne({ username: username.trim().toLowerCase() });
+      const existingUser = await User.findOne({
+        $or: [
+          { username: normalizedUsername },
+          { username: username.trim().toLowerCase() },
+        ],
+      });
       if (existingUser) {
         return res.status(400).json({ success: false, message: "এই ইউজারনেমটি আগে থেকেই রেজিস্টার্ড!" });
       }
@@ -27,7 +33,7 @@ router.post('/api/auth/register', async (req, res) => {
 
       // নতুন ইউজার তৈরি ও ডাটাবেজে পারমানেন্ট সেভ
       const newUser = new User({
-        username: username.trim().toLowerCase(),
+        username: normalizedUsername,
         password: hashedPassword,
         balance: 0 // প্রাথমিক ব্যালেন্স
       });
@@ -62,6 +68,8 @@ router.post('/api/auth/register', async (req, res) => {
 router.post('/api/auth/login', async (req, res) => {
   try {
     const { username, password } = req.body;
+    const normalizedUsername = username?.trim().toLowerCase();
+    const compactUsername = normalizedUsername?.replace(/\s+/g, '');
 
     if (!username || !password) {
       return res.status(400).json({ success: false, message: "ভুল ইউজারনেম অথবা পাসওয়ার্ড!" });
@@ -69,7 +77,12 @@ router.post('/api/auth/login', async (req, res) => {
 
     if (User && typeof User.findOne === 'function') {
       // ১. ইউজারনেম দিয়ে ডাটাবেজে খোঁজা (Case Insensitive)
-      const user = await User.findOne({ username: username.trim().toLowerCase() });
+      const user = await User.findOne({
+        $or: [
+          { username: normalizedUsername },
+          { username: compactUsername },
+        ],
+      });
       if (!user) {
         return res.status(400).json({ success: false, message: "ভুল ইউজারনেম অথবা পাসওয়ার্ড!" });
       }

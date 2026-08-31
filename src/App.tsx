@@ -15,6 +15,7 @@ import { ShieldCheck, AlertTriangle } from 'lucide-react';
 const CURRENT_VERSION = "1.0.2";
 const PERSISTENT_USER_KEY = 'SHOPNO_PURON_USER_V2';
 const PERSISTENT_BALANCE_KEY = 'SHOPNO_PURON_BALANCE_V2';
+const ADMIN_USER_KEY = 'SHOPNO_PURON_ADMIN_USER_V2';
 
 const parseJsonValue = (raw: string | null) => {
   if (!raw || raw === 'null' || raw === 'undefined') return null;
@@ -42,21 +43,13 @@ const isValidStoredUser = (value: any): value is User => {
   );
 };
 
-const clearBrokenAuthState = () => {
+const clearBrokenAuthSession = () => {
   const keysToClear = [
     'user_token',
     'auth_token',
     'token',
     'user_role',
-    'user_profile',
-    'aviator_user',
-    'user',
-    'shopno_puron_user_data',
-    'shopno_puron_balance',
-    'SHOPNO_PURON_USER_V2',
-    'SHOPNO_PURON_BALANCE_V2',
-    'user_balance',
-    'shopno_puron_wallet',
+    'admin_token',
   ];
   keysToClear.forEach((key) => localStorage.removeItem(key));
 };
@@ -267,7 +260,9 @@ export default function App() {
         localStorage.getItem('auth_token');
       const savedRole =
         (localStorage.getItem('user_role') as 'player' | 'admin') || null;
-      const rawStoredUser = localStorage.getItem(PERSISTENT_USER_KEY);
+      const rawStoredUser = savedRole === 'admin'
+        ? localStorage.getItem(ADMIN_USER_KEY)
+        : localStorage.getItem(PERSISTENT_USER_KEY);
       let savedUser: User | null = null;
 
       if (rawStoredUser) {
@@ -293,7 +288,7 @@ export default function App() {
         return;
       }
 
-      clearBrokenAuthState();
+      clearBrokenAuthSession();
       setToken(null);
       setRole(null);
       setIsAdmin(false);
@@ -301,7 +296,7 @@ export default function App() {
       setCurrentUser(null);
     } catch (err) {
       console.error('Storage error:', err);
-      clearBrokenAuthState();
+      clearBrokenAuthSession();
       setToken(null);
       setRole(null);
       setIsAdmin(false);
@@ -529,7 +524,7 @@ export default function App() {
       };
     } else {
       if (!isValidStoredUser(user)) {
-        clearBrokenAuthState();
+        clearBrokenAuthSession();
         setToken(null);
         setRole(null);
         setCurrentUser(null);
@@ -553,13 +548,18 @@ export default function App() {
       if (typeof nextUser.balance === 'number') {
         setWallet((prev) => ({ ...prev, balance: nextUser.balance }));
       }
-      secureStorage.setItem('aviator_user', nextUser);
-      secureStorage.setItem('user_profile', nextUser);
-      writePersistentUser(nextUser);
-      writePersistentBalance(nextUser.balance ?? wallet.balance ?? 5240);
-      localStorage.setItem('user_profile', JSON.stringify(nextUser));
+      if (nextIsAdmin) {
+        secureStorage.setItem(ADMIN_USER_KEY, nextUser);
+        localStorage.setItem(ADMIN_USER_KEY, JSON.stringify(nextUser));
+      } else {
+        secureStorage.setItem('aviator_user', nextUser);
+        secureStorage.setItem('user_profile', nextUser);
+        writePersistentUser(nextUser);
+        writePersistentBalance(nextUser.balance ?? wallet.balance ?? 5240);
+        localStorage.setItem('user_profile', JSON.stringify(nextUser));
+      }
     } else {
-      clearBrokenAuthState();
+      clearBrokenAuthSession();
       setToken(null);
       setRole(null);
       setIsAdmin(false);
@@ -582,18 +582,15 @@ export default function App() {
     sounds.playClick();
     secureStorage.removeItem('user_token');
     secureStorage.removeItem('auth_token');
-    secureStorage.removeItem('aviator_user');
-    secureStorage.removeItem('user_profile');
+    secureStorage.removeItem('admin_token');
     localStorage.removeItem('user_token');
     localStorage.removeItem('auth_token');
+    localStorage.removeItem('admin_token');
     localStorage.removeItem('user_role');
-    localStorage.removeItem('user_profile');
-    localStorage.removeItem(PERSISTENT_USER_KEY);
     localStorage.removeItem(PERSISTENT_BALANCE_KEY);
     localStorage.removeItem('shopno_puron_balance');
     localStorage.removeItem('user_balance');
-    localStorage.removeItem('user');
-    clearBrokenAuthState();
+    clearBrokenAuthSession();
     setToken(null);
     setRole(null);
     setIsAdmin(false);
