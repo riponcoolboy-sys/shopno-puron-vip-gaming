@@ -280,9 +280,10 @@ export default function App() {
       if (savedToken && savedUser && isValidStoredUser(savedUser)) {
         setToken(savedToken);
         setRole(savedRole || savedUser.role);
-        setCurrentUser(savedUser);
-        setIsAdmin(savedUser.role === 'admin' || savedRole === 'admin');
-        setAdminUser(savedUser.role === 'admin' || savedRole === 'admin' ? savedUser : null);
+        const savedIsAdmin = savedUser.role === 'admin' || savedRole === 'admin';
+        setIsAdmin(savedIsAdmin);
+        setAdminUser(savedIsAdmin ? savedUser : null);
+        setCurrentUser(savedIsAdmin ? null : savedUser);
         setWallet((prev) => ({ ...prev, balance: savedUser.balance }));
         writePersistentBalance(savedUser.balance);
         return;
@@ -544,14 +545,15 @@ export default function App() {
       const nextIsAdmin = resolvedRole === 'admin' || nextUser.role === 'admin';
       setIsAdmin(nextIsAdmin);
       setAdminUser(nextIsAdmin ? nextUser : null);
-      setCurrentUser(nextUser);
-      if (typeof nextUser.balance === 'number') {
-        setWallet((prev) => ({ ...prev, balance: nextUser.balance }));
-      }
       if (nextIsAdmin) {
+        setCurrentUser(null);
         secureStorage.setItem(ADMIN_USER_KEY, nextUser);
         localStorage.setItem(ADMIN_USER_KEY, JSON.stringify(nextUser));
       } else {
+        setCurrentUser(nextUser);
+        if (typeof nextUser.balance === 'number') {
+          setWallet((prev) => ({ ...prev, balance: nextUser.balance }));
+        }
         secureStorage.setItem('aviator_user', nextUser);
         secureStorage.setItem('user_profile', nextUser);
         writePersistentUser(nextUser);

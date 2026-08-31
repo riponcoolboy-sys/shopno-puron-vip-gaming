@@ -250,8 +250,13 @@ export default function SecureLogin({ onLoginSuccess, onOpenSupport }: SecureLog
         setAdminPassword('');
         adminAuthenticatedRef.current = true;
 
-        if (onLoginSuccess) {
-          onLoginSuccess(adminUser, 'admin');
+        try {
+          if (onLoginSuccess) {
+            onLoginSuccess(adminUser, 'admin');
+          }
+        } catch (callbackError) {
+          adminAuthenticatedRef.current = false;
+          setAdminError(lang === 'bn' ? 'এডমিন সেশন শুরু করা যায়নি' : 'Admin session could not be started');
         }
       } else {
         authRateLimiter.recordFailedAttempt();
@@ -289,8 +294,13 @@ export default function SecureLogin({ onLoginSuccess, onOpenSupport }: SecureLog
         setShowAdminModal(false);
         setAdminPassword('');
         adminAuthenticatedRef.current = true;
-        if (onLoginSuccess) {
-          onLoginSuccess(adminUser, 'admin');
+        try {
+          if (onLoginSuccess) {
+            onLoginSuccess(adminUser, 'admin');
+          }
+        } catch (callbackError) {
+          adminAuthenticatedRef.current = false;
+          setAdminError(lang === 'bn' ? 'এডমিন সেশন শুরু করা যায়নি' : 'Admin session could not be started');
         }
       } else {
         authRateLimiter.recordFailedAttempt();
