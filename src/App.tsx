@@ -774,8 +774,18 @@ export default function App() {
   };
 
   const handleApproveDeposit = async (depositId: string, transactionId?: string) => {
+    // We try to find which ID is actually the primary one for the backend call
     const targetId = depositId || transactionId;
     if (!targetId) return;
+
+    // Optimistically find the request and mark as approved in local state to prevent "revert" flicker
+    setDepositRequests((prev) =>
+      prev.map((r) =>
+        (r.id === targetId || (r as any)._id === targetId || r.transactionId === targetId)
+          ? { ...r, status: 'approved' }
+          : r
+      )
+    );
 
     try {
       const response = await fetch(apiUrl('/api/deposit/approve'), {
@@ -785,21 +795,56 @@ export default function App() {
       });
 
       const data = await response.json();
-      if (data.success) {
-        // UI feedback: update local deposit request status
+
+      if (data.success && data.updatedDeposit) {
+        // Explicitly sync the local state with the exact record from the server
+        const updated = data.updatedDeposit;
+        const mappedUpdated = {
+          id: updated._id || updated.id,
+          userId: updated.userId,
+          userName: updated.userName,
+          paymentMethod: updated.paymentMethod,
+          amount: updated.amount,
+          transactionId: updated.transactionId,
+          senderNumber: updated.senderNumber,
+          status: updated.status,
+          createdAt: updated.createdAt,
+          updatedAt: updated.updatedAt,
+        };
+
+        setDepositRequests((prev) => {
+          const exists = prev.some(r => r.id === mappedUpdated.id || r.transactionId === mappedUpdated.transactionId);
+          if (exists) {
+            return prev.map(r => (r.id === mappedUpdated.id || r.transactionId === mappedUpdated.transactionId) ? mappedUpdated : r);
+          }
+          return [mappedUpdated, ...prev];
+        });
+
+        // If the deposit was for the currently logged-in user, refresh their profile/balance
+        if (currentUser && (currentUser._id === updated.userId || currentUser.id === updated.userId || currentUser.username === updated.userName)) {
+          loadUserProfile();
+        }
+      } else {
+        // If server failed, revert local state to pending
         setDepositRequests((prev) =>
-          prev.map((r) => 
-            (r.id === targetId || (r as any)._id === targetId || r.transactionId === targetId) 
-            ? { ...r, status: 'approved' } 
-            : r
+          prev.map((r) =>
+            (r.id === targetId || (r as any)._id === targetId || r.transactionId === targetId)
+              ? { ...r, status: 'pending' }
+              : r
           )
         );
-        // Balance will be updated automatically via server WebSocket broadcast
-      } else {
-        console.error('Deposit approval failed:', data.message);
+        console.error('Approval failed on server:', data.message);
       }
     } catch (err) {
-      console.error('Network error during deposit approval:', err);
+      // On network error, revert local state to pending
+      setDepositRequests((prev) =>
+        prev.map((r) =>
+          (r.id === targetId || (r as any)._id === targetId || r.transactionId === targetId)
+            ? { ...r, status: 'pending' }
+            : r
+        )
+      );
+      console.error('Network error during approval:', err);
     }
   };
 

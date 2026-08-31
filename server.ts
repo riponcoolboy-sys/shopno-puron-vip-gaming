@@ -1605,86 +1605,90 @@ async function startServer() {
     try {
       const { depositId, status } = req.body;
       if (!depositId || status !== 'approved') {
-        return res.status(400).json({ success: false, message: 'Invalid request data' });
+        return res.status(400).json({ success: false, message: 'Invalid deposit ID or status' });
       }
 
-      // 1. Find deposit (Memory or MongoDB)
-      let deposit = dbDeposits.find(d => d._id === depositId || (d as any).id === depositId || d.transactionId === depositId);
-      
-      if (!deposit && isMongoConnected) {
-        try {
-          const query: any = { $or: [{ transactionId: depositId }] };
-          if (mongoose.isValidObjectId(depositId)) {
-            query.$or.push({ _id: depositId });
-          }
-          const mongoDep = await DepositModel.findOne(query);
-          if (mongoDep) deposit = mongoDep.toObject();
-        } catch (e) {}
+      // 1. Find the Deposit Record using any possible ID format (MongoDB or Memory fallback)
+      let depositDoc: any = null;
+      if (isMongoConnected) {
+        const query: any = { $or: [{ transactionId: depositId }, { _id: mongoose.isValidObjectId(depositId) ? depositId : null }] };
+        depositDoc = await DepositModel.findOne({ $or: query.$or.filter((q: any) => q._id !== null || q.transactionId) });
       }
 
-      if (!deposit) {
-        return res.status(404).json({ success: false, message: 'Deposit not found' });
+      // Memory fallback if MongoDB fails or record not in MongoDB yet
+      if (!depositDoc) {
+        depositDoc = dbDeposits.find(d => d._id === depositId || (d as any).id === depositId || d.transactionId === depositId);
       }
 
-      if (deposit.status === 'approved') {
-        return res.status(200).json({ success: true, message: 'Already approved' });
+      if (!depositDoc) {
+        return res.status(404).json({ success: false, message: 'Deposit request not found in database' });
       }
 
-      const amount = Number(deposit.amount) || 0;
-      const userId = deposit.userId;
-
-      // 2. Update User Balance
-      let user = dbUsers[userId] || Object.values(dbUsers).find(u => u._id === userId || u.username === deposit?.userName);
-      
-      if (!user && isMongoConnected) {
-        try {
-          const query: any = { $or: [] };
-          if (mongoose.isValidObjectId(userId)) query.$or.push({ _id: userId });
-          if (deposit?.userName) query.$or.push({ username: deposit.userName });
-          
-          if (query.$or.length > 0) {
-            const mongoUser = await UserModel.findOne(query);
-            if (mongoUser) {
-              const mObj = mongoUser.toObject();
-              user = { ...mObj, _id: String(mObj._id) };
-              dbUsers[user._id] = user;
-            }
-          }
-        } catch(e) {}
+      if (depositDoc.status === 'approved') {
+        return res.status(200).json({ success: true, message: 'Deposit already approved', updatedDeposit: depositDoc });
       }
 
-      if (user) {
-        user.balance = (Number(user.balance) || 0) + amount;
-        user.updatedAt = new Date().toISOString();
-        
-        if (isMongoConnected) {
-          try {
-            await UserModel.findByIdAndUpdate(user._id, { $inc: { balance: amount } });
-            await DepositModel.findOneAndUpdate(
-              { $or: [{ _id: deposit._id }, { transactionId: deposit.transactionId }] },
-              { status: 'approved', updatedAt: new Date() }
-            );
-          } catch (e) {}
-        }
+      const amount = Number(depositDoc.amount) || 0;
+      const userId = depositDoc.userId;
 
-        // Update memory status
-        deposit.status = 'approved';
-        deposit.updatedAt = new Date().toISOString();
-
-        // 3. Notify via WebSocket
-        broadcastUserBalance(user._id, user.balance, { actionType: 'DEPOSIT_APPROVED', amount });
-
-        return res.status(200).json({ 
-          success: true, 
-          message: 'Approved successfully',
-          newBalance: user.balance 
-        });
-      } else {
-        return res.status(404).json({ success: false, message: 'User not found for this deposit' });
+      // 2. Locate User and Update Balance
+      let userDoc: any = null;
+      if (isMongoConnected) {
+        const userQuery: any = { $or: [{ username: depositDoc.userName }] };
+        if (mongoose.isValidObjectId(userId)) userQuery.$or.push({ _id: userId });
+        userDoc = await UserModel.findOne(userQuery);
       }
+
+      if (!userDoc) {
+        userDoc = dbUsers[userId] || Object.values(dbUsers).find(u => u._id === userId || u.username === depositDoc.userName);
+      }
+
+      if (!userDoc) {
+        return res.status(404).json({ success: false, message: 'User associated with this deposit not found' });
+      }
+
+      // 3. PERSIST UPDATES (WAIT FOR DATABASE TO CONFIRM)
+      if (isMongoConnected) {
+        // Atomic balance increment and status update
+        await UserModel.updateOne({ _id: userDoc._id }, { $inc: { balance: amount } });
+        depositDoc = await DepositModel.findOneAndUpdate(
+          { _id: depositDoc._id },
+          { status: 'approved', updatedAt: new Date() },
+          { new: true }
+        );
+      }
+
+      // Update In-Memory cache for consistency
+      const memoryUser = dbUsers[userDoc._id || userId] || Object.values(dbUsers).find(u => u._id === String(userDoc._id));
+      if (memoryUser) {
+        memoryUser.balance = (Number(memoryUser.balance) || 0) + amount;
+        memoryUser.updatedAt = new Date().toISOString();
+      }
+
+      const memoryDeposit = dbDeposits.find(d => d._id === String(depositDoc._id) || d.transactionId === depositDoc.transactionId);
+      if (memoryDeposit) {
+        memoryDeposit.status = 'approved';
+        memoryDeposit.updatedAt = new Date().toISOString();
+      }
+
+      // 4. BroadCast via WebSocket for real-time UI balance update
+      broadcastUserBalance(String(userDoc._id || userId), Number(userDoc.balance) + amount, { 
+        actionType: 'DEPOSIT_APPROVED', 
+        amount,
+        deposit: depositDoc 
+      });
+
+      // 5. Explicitly return success after database confirmation
+      return res.status(200).json({ 
+        success: true, 
+        message: 'Deposit approved successfully', 
+        updatedDeposit: depositDoc,
+        newBalance: (Number(userDoc.balance) + amount)
+      });
+
     } catch (error: any) {
-      console.error('Approve Error:', error);
-      res.status(500).json({ success: false, message: error.message });
+      console.error('[CRITICAL] Deposit Approval Error:', error);
+      return res.status(500).json({ success: false, message: 'Server error during database update' });
     }
   };
 
