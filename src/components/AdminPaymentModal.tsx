@@ -51,6 +51,11 @@ export default function AdminPaymentModal({
 
   const [saveToast, setSaveToast] = useState<boolean>(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [localDepositRequests, setLocalDepositRequests] = useState<DepositRequest[]>(depositRequests);
+
+  useEffect(() => {
+    setLocalDepositRequests(depositRequests);
+  }, [depositRequests]);
 
   // User Management state from User model
   const [usersList, setUsersList] = useState<User[]>([
@@ -112,7 +117,7 @@ export default function AdminPaymentModal({
     setTimeout(() => setSaveToast(false), 2500);
   };
 
-  const filteredRequests = depositRequests.filter((req) => {
+  const filteredRequests = localDepositRequests.filter((req) => {
     const matchesStatus = statusFilter === 'all' || req.status === statusFilter;
     const matchesSearch =
       searchTerm.trim() === '' ||
@@ -131,7 +136,7 @@ export default function AdminPaymentModal({
     );
   });
 
-  const pendingCount = depositRequests.filter((r) => r.status === 'pending').length;
+  const pendingCount = localDepositRequests.filter((r) => r.status === 'pending').length;
 
   return (
     <div className="fixed inset-0 bg-black/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 z-50 animate-in fade-in duration-200">
@@ -361,8 +366,16 @@ export default function AdminPaymentModal({
                       <div className="flex gap-2 pt-1">
                         <button
                           onClick={() => {
+                            const depositId = String(req.id ?? req._id ?? '');
                             sounds.playWin();
-                            onApproveDeposit(req.id);
+                            setLocalDepositRequests((prev) =>
+                              prev.map((item) =>
+                                item.id === depositId || item._id === depositId
+                                  ? { ...item, status: 'approved' }
+                                  : item
+                              )
+                            );
+                            onApproveDeposit(depositId);
                           }}
                           className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 rounded-xl text-xs flex items-center justify-center gap-1.5 transition shadow-sm"
                         >
@@ -371,8 +384,9 @@ export default function AdminPaymentModal({
                         </button>
                         <button
                           onClick={() => {
+                            const depositId = String(req.id ?? req._id ?? '');
                             sounds.playCashout();
-                            onRejectDeposit(req.id, 'Invalid TrxID or Sender Mismatch');
+                            onRejectDeposit(depositId, 'Invalid TrxID or Sender Mismatch');
                           }}
                           className="bg-red-950/60 hover:bg-red-900/60 text-red-300 border border-red-800/80 px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1"
                         >
