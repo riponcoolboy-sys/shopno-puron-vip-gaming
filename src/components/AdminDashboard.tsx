@@ -1113,7 +1113,7 @@ export default function AdminDashboard({
                     {req.status === 'pending' && (
                       <div className="flex items-center gap-2 w-full sm:w-auto">
                         <button
-                          onClick={() => handleApproveDeposit(req.id, req.transactionId)}
+                          onClick={() => handleApproveDeposit(req.id || req._id || req.transactionId, req.transactionId)}
                           className="flex-1 sm:flex-initial bg-emerald-500 hover:bg-emerald-400 text-black font-black px-4 py-2 rounded-xl text-xs transition flex items-center justify-center gap-1.5 shadow-lg shadow-emerald-950/50"
                         >
                           <Check size={14} />
@@ -1124,7 +1124,7 @@ export default function AdminDashboard({
                             setRejectModal({
                               isOpen: true,
                               type: 'deposit',
-                              id: req.id,
+                              id: req.id || req._id || req.transactionId,
                               targetName: req.userName || req.userId,
                               amount: req.amount,
                               reason: '',

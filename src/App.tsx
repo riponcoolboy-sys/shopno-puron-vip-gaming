@@ -126,6 +126,28 @@ class LoggedInRenderBoundary extends React.Component<
 }
 
 export default function App() {
+  if (typeof window !== 'undefined') {
+    (window as any).__APP_BOOTSTRAPPING__ = true;
+  }
+
+  const [isBootstrapping, setIsBootstrapping] = useState(true);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setIsBootstrapping(false);
+      if (typeof window !== 'undefined') {
+        delete (window as any).__APP_BOOTSTRAPPING__;
+      }
+    }, 1200);
+
+    return () => {
+      clearTimeout(timer);
+      if (typeof window !== 'undefined') {
+        delete (window as any).__APP_BOOTSTRAPPING__;
+      }
+    };
+  }, []);
+
   // ভার্সন কন্ট্রোল এবং স্বয়ংক্রিয় ক্যাশ ক্লিয়ারিং লজিক
   useEffect(() => {
     const savedVersion = localStorage.getItem('app_version');
@@ -211,9 +233,7 @@ export default function App() {
 
   // User Wallet & Persistence with SHA-256 Anti-Tamper
   const [wallet, setWallet] = useState<UserWallet>(() => {
-    const saved = secureStorage.getItem<UserWallet>('shopno_puron_wallet', null, () => {
-      console.warn('[Security] Wallet tampering detected! Re-syncing with server.');
-    });
+    const saved = secureStorage.getItem<UserWallet>('shopno_puron_wallet', null);
     if (saved && typeof saved.balance === 'number') return saved;
     try {
       const fallback = localStorage.getItem('shopno_puron_wallet');
@@ -349,7 +369,7 @@ export default function App() {
     if (isAdmin) return;
 
     const verifyIntegrity = () => {
-      if (isAdmin || isAdminSession()) return;
+      if (isAdmin || isAdminSession() || isBootstrapping) return;
 
       const verifiedWallet = secureStorage.getItem<UserWallet>(
         'shopno_puron_wallet',
@@ -371,7 +391,7 @@ export default function App() {
       window.removeEventListener('focus', verifyIntegrity);
       window.removeEventListener('storage', verifyIntegrity);
     };
-  }, [isAdmin, loadUserProfile]);
+  }, [isAdmin, loadUserProfile, isBootstrapping]);
 
   // ডাটাবেজ থেকে আসল প্রোফাইল ও লাইভ ব্যালেন্স ফেচ করার লজিক এবং রিয়েল-টাইম WebSocket/Polling কানেকশন
   useEffect(() => {
@@ -755,14 +775,11 @@ export default function App() {
 
   const handleApproveDeposit = async (depositId: string, transactionId?: string) => {
     const target =
-      depositRequests.find(
-        (r) =>
-          r.id === depositId ||
-          r._id === depositId ||
-          r.transactionId === depositId ||
-          r.transactionId === transactionId ||
-          r.id === transactionId
-      ) ?? null;
+      depositRequests.find((r) => {
+        const candidateIds = [r.id, r._id, r.transactionId, depositId, transactionId].filter(Boolean) as string[];
+        return candidateIds.some((candidate) => candidate === depositId || candidate === transactionId || candidate === r.transactionId || candidate === r.id || candidate === r._id);
+      }) ?? null;
+
     if (!target) return;
 
     const exactDepositId = String(target._id || target.id || depositId).trim();
@@ -770,6 +787,25 @@ export default function App() {
     const approvedAmount = Number(target.amount) || 0;
     const bonusAmount = Number(target.bonusAmount || 0);
     const totalCredited = approvedAmount + bonusAmount;
+
+    const matchesTarget = (r: DepositRequest) => {
+      const candidates = [r.id, r._id, r.transactionId, exactDepositId, exactTrxId, depositId, transactionId].filter(Boolean) as string[];
+      return candidates.some((candidate) => candidate === exactDepositId || candidate === depositId || candidate === exactTrxId || candidate === transactionId || candidate === r.transactionId || candidate === r.id || candidate === r._id);
+    };
+
+    setDepositRequests((prev) =>
+      prev.map((r) => (matchesTarget(r) ? { ...r, status: 'approved', updatedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) } : r))
+    );
+
+    setWallet((prev) => ({
+      ...prev,
+      balance: prev.balance + totalCredited,
+      points: prev.points + Math.floor(totalCredited / 5),
+    }));
+
+    setTransactions((prev) =>
+      prev.map((tx) => (tx.trxId === target.transactionId ? { ...tx, status: 'COMPLETED' } : tx))
+    );
 
     try {
       const activeToken = token || localStorage.getItem('user_token') || localStorage.getItem('auth_token');
@@ -788,30 +824,9 @@ export default function App() {
       });
 
       const data = await response.json().catch(() => null);
-
       if (!response.ok || !data?.success) {
         throw new Error(data?.message || 'Deposit approval failed');
       }
-
-      setWallet((prev) => ({
-        ...prev,
-        balance: prev.balance + totalCredited,
-        points: prev.points + Math.floor(totalCredited / 5),
-      }));
-
-      setDepositRequests((prev) =>
-        prev.map((r) =>
-          (r.id === exactDepositId || r._id === exactDepositId)
-            ? { ...r, status: 'approved', updatedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }
-            : r
-        )
-      );
-
-      setTransactions((prev) =>
-        prev.map((tx) =>
-          tx.trxId === target.transactionId ? { ...tx, status: 'COMPLETED' } : tx
-        )
-      );
 
       const targetUserId = target.userId;
       const persistedProfiles: User[] = [
@@ -843,21 +858,25 @@ export default function App() {
       }
     } catch {
       setDepositRequests((prev) =>
-        prev.map((r) =>
-          (r.id === depositId || r._id === depositId)
-            ? { ...r, status: 'pending' }
-            : r
-        )
+        prev.map((r) => (matchesTarget(r) ? { ...r, status: 'pending' } : r))
       );
     }
   };
 
   const handleRejectDeposit = async (depositId: string, reason?: string) => {
+    const target = depositRequests.find((r) => {
+      const candidates = [r.id, r._id, r.transactionId, depositId].filter(Boolean) as string[];
+      return candidates.some((candidate) => candidate === depositId || candidate === r.transactionId || candidate === r.id || candidate === r._id);
+    }) ?? null;
+
     setDepositRequests((prev) =>
-      prev.map((r) => (r.id === depositId ? { ...r, status: 'rejected', rejectionReason: reason } : r))
+      prev.map((r) => {
+        const candidates = [r.id, r._id, r.transactionId, depositId].filter(Boolean) as string[];
+        const shouldReject = candidates.some((candidate) => candidate === depositId || candidate === r.transactionId || candidate === r.id || candidate === r._id);
+        return shouldReject ? { ...r, status: 'rejected', rejectionReason: reason } : r;
+      })
     );
 
-    const target = depositRequests.find((r) => r.id === depositId);
     if (target) {
       setTransactions((prev) =>
         prev.map((tx) =>

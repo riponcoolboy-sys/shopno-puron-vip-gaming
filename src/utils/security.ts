@@ -98,6 +98,11 @@ export function isAdminSession(): boolean {
     || Boolean(localStorage.getItem('admin_token'));
 }
 
+function isAppBootstrapping(): boolean {
+  if (typeof window === 'undefined') return false;
+  return Boolean((window as any).__APP_BOOTSTRAPPING__);
+}
+
 // -------------------------------------------------------------
 // 1. DATA TAMPER PROTECTION & SECURE LOCAL/SESSION STORAGE
 // -------------------------------------------------------------
@@ -147,8 +152,10 @@ export const secureStorage = {
       if (parsed && typeof parsed === 'object' && 'signature' in parsed && 'payload' in parsed) {
         const expectedSig = computeIntegritySignature(parsed.payload);
         if (parsed.signature !== expectedSig) {
-          console.warn(`[Security Alert] Data tampering detected for key "${key}"! Signature mismatch.`);
-          if (!isAdminSession() && onTamperDetected) onTamperDetected();
+          if (!isAppBootstrapping()) {
+            console.warn(`[Security Alert] Data tampering detected for key "${key}"! Signature mismatch.`);
+            if (!isAdminSession() && onTamperDetected) onTamperDetected();
+          }
           return fallback;
         }
         return parsed.payload as T;
@@ -159,8 +166,10 @@ export const secureStorage = {
       if (shadowSig) {
         const expected = computeIntegritySignature(parsed);
         if (shadowSig !== expected) {
-          console.warn(`[Security Alert] Tampering detected on raw key "${key}"!`);
-          if (!isAdminSession() && onTamperDetected) onTamperDetected();
+          if (!isAppBootstrapping()) {
+            console.warn(`[Security Alert] Tampering detected on raw key "${key}"!`);
+            if (!isAdminSession() && onTamperDetected) onTamperDetected();
+          }
           return fallback;
         }
       }
