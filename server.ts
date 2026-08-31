@@ -1011,23 +1011,25 @@ app.use(cors());
   app.get('/api/realtime/sync', async (req, res) => {
     try {
       const queryUserId = String(req.query.userId || '').trim();
-      let user = null;
+      let user: any = null;
       if (queryUserId) {
         try { user = await UserModel.findById(queryUserId); } catch { /* username or phone lookup below */ }
         if (!user) user = await UserModel.findOne({ $or: [{ username: queryUserId.toLowerCase() }, { phone: queryUserId }] });
       }
       if (!user) return res.status(404).json({ success: false, message: 'ইউজার পাওয়া যায়নি!', balance: 0 });
 
+      const safeUser = user as any;
+
       res.status(200).json({
         success: true,
-        balance: Number(user.balance),
+        balance: Number(safeUser.balance ?? 0),
         user: {
-          id: user._id,
-          _id: user._id,
-          username: user.username,
-          balance: user.balance,
-          vipTier: user.vipTier,
-          points: user.points,
+          id: safeUser._id,
+          _id: safeUser._id,
+          username: safeUser.username,
+          balance: safeUser.balance ?? 0,
+          vipTier: safeUser.vipTier,
+          points: safeUser.points ?? 0,
         },
         serverTime: Date.now(),
       });
@@ -1170,7 +1172,7 @@ app.use(cors());
   app.get('/api/user/balance/:userId', async (req, res) => {
     try {
       const { userId } = req.params;
-      let user = null;
+      let user: any = null;
       try { user = await UserModel.findById(userId); } catch { /* username or phone lookup below */ }
       if (!user) user = await UserModel.findOne({ $or: [{ username: userId.toLowerCase() }, { phone: userId }] });
 
@@ -1178,14 +1180,16 @@ app.use(cors());
         return res.status(404).json({ success: false, message: 'ইউজার পাওয়া যায়নি!', balance: 0 });
       }
 
+      const safeUser = user as any;
+
       res.status(200).json({
         success: true,
-        balance: user.balance,
+        balance: safeUser.balance ?? 0,
         user: {
-          id: user._id,
-          username: user.username,
-          balance: user.balance,
-          vipTier: user.vipTier,
+          id: safeUser._id,
+          username: safeUser.username,
+          balance: safeUser.balance ?? 0,
+          vipTier: safeUser.vipTier,
         },
       });
     } catch (error: any) {
@@ -1200,26 +1204,28 @@ app.use(cors());
   const handleUserProfile = async (req: express.Request, res: express.Response) => {
     try {
       const userPayload = (req as any).user;
-      let user = null;
-      try { user = await UserModel.findById(userPayload.id); } catch { /* username lookup below */ }
-      if (!user) user = await UserModel.findOne({ username: userPayload.username });
+      let user: any = null;
+      try { user = await UserModel.findById(userPayload?.id); } catch { /* username lookup below */ }
+      if (!user) user = await UserModel.findOne({ username: userPayload?.username });
       
       if (!user) {
         return res.status(404).json({ success: false, message: 'ইউজার পাওয়া যায়নি!' });
       }
 
+      const safeUser = user as any;
+
       res.status(200).json({
         success: true,
         user: {
-          id: user._id,
-          _id: user._id,
-          username: user.username,
-          phone: user.phone,
-          role: user.role,
-          balance: user.balance,
-          vipTier: user.vipTier,
-          points: user.points,
-          referredBy: user.referredBy,
+          id: safeUser._id,
+          _id: safeUser._id,
+          username: safeUser.username,
+          phone: safeUser.phone,
+          role: safeUser.role,
+          balance: safeUser.balance ?? 0,
+          vipTier: safeUser.vipTier,
+          points: safeUser.points ?? 0,
+          referredBy: safeUser.referredBy,
         },
       });
     } catch (error: any) {
@@ -1562,8 +1568,9 @@ app.use(cors());
   // ==========================================
   // [ADMIN] ৪. পেন্ডিং ডিপোজিট এপ্রুভ করা (verifyAdmin)
   // POST /api/admin/deposit/approve
+  // POST /api/admin/approve-deposit (alias for frontend compatibility)
   // ==========================================
-  app.post('/api/admin/deposit/approve', verifyAdmin, async (req, res) => {
+  const approveDepositHandler = async (req: any, res: any) => {
     try {
       const { depositId } = req.body;
 
@@ -1620,7 +1627,10 @@ app.use(cors());
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message || 'Server error' });
     }
-  });
+  };
+
+  app.post('/api/admin/deposit/approve', verifyAdmin, approveDepositHandler);
+  app.post('/api/admin/approve-deposit', verifyAdmin, approveDepositHandler);
 
   // ==========================================
   // [ADMIN] ৫. ডিপোজিট রিজেক্ট করা (verifyAdmin)

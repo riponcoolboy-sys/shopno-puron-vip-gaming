@@ -27,6 +27,7 @@ import {
 } from '../types';
 import { GAMES_DATA } from '../data/games';
 import { sounds } from '../utils/audio';
+import { isAdminSession } from '../utils/security';
 import Header from './Header';
 import BannerSlider from './BannerSlider';
 import BottomNav, { BottomNavTab } from './BottomNav';
@@ -182,7 +183,7 @@ export default function UserLobby({
 
   const canReturnToAdmin = Boolean(
     onOpenAdmin &&
-      (safeUser.role === 'admin' || localStorage.getItem('isAdmin') === 'true' || localStorage.getItem('SHOPNO_PURON_ADMIN_USER_V2'))
+      (safeUser.role === 'admin' || isAdminSession() || localStorage.getItem('user_role') === 'admin' || !!localStorage.getItem('admin_token'))
   );
 
   return (

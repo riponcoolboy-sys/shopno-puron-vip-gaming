@@ -812,7 +812,7 @@ export default function App() {
 
     try {
       const activeToken = token || localStorage.getItem('user_token') || localStorage.getItem('auth_token');
-      const response = await fetch(apiUrl('/api/admin/deposit/approve'), {
+      const response = await fetch(apiUrl('/api/admin/approve-deposit'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -976,12 +976,16 @@ export default function App() {
                   ? adminUser
                   : createPreviewPlayerUser();
 
+            const persistedAdminUser = adminUser || user;
+
             setIsAdmin(false);
             setRole('player');
             setCurrentUser(nextPlayerUser);
-            localStorage.setItem('isAdmin', 'true');
-            if (adminUser) {
-              localStorage.setItem(ADMIN_USER_KEY, JSON.stringify(adminUser));
+            if (persistedAdminUser) {
+              setAdminUser(persistedAdminUser);
+              localStorage.setItem(ADMIN_USER_KEY, JSON.stringify(persistedAdminUser));
+              localStorage.setItem('isAdmin', 'true');
+              localStorage.setItem('user_role', 'admin');
             }
 
             if (!token) {
@@ -990,7 +994,6 @@ export default function App() {
               secureStorage.setItem('auth_token', previewToken);
               localStorage.setItem('user_token', previewToken);
               localStorage.setItem('auth_token', previewToken);
-              localStorage.setItem('user_role', 'player');
               setToken(previewToken);
             }
 
@@ -1040,10 +1043,13 @@ export default function App() {
           onWithdraw={handleWithdraw}
           onClaimVipReward={handleClaimVipReward}
           onOpenAdmin={() => {
+            const canEnterAdminPanel = isAdmin || currentUser?.role === 'admin' || isAdminSession();
+            if (!canEnterAdminPanel) return;
+
             const adminSessionUser =
               adminUser ||
               (localStorage.getItem(ADMIN_USER_KEY) ? parseJsonValue(localStorage.getItem(ADMIN_USER_KEY)) : null) ||
-              (localStorage.getItem('isAdmin') === 'true' && currentUser && currentUser.role === 'admin' ? currentUser : null);
+              (currentUser && currentUser.role === 'admin' ? currentUser : null);
 
             if (adminSessionUser && isValidStoredUser(adminSessionUser)) {
               setIsAdmin(true);
@@ -1055,17 +1061,10 @@ export default function App() {
               return;
             }
 
-            if (adminUser) {
-              setIsAdmin(true);
-              setCurrentUser(null);
-              setRole('admin');
-              localStorage.setItem('isAdmin', 'true');
-              return;
-            }
-
-            setIsAdmin(false);
-            setCurrentUser(currentUser ?? createPreviewPlayerUser());
-            setRole('player');
+            setIsAdmin(true);
+            setCurrentUser(null);
+            setRole('admin');
+            localStorage.setItem('isAdmin', 'true');
           }}
         />
         {showSupportModal && (

@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { UserWallet, User } from '../types';
 import { sounds } from '../utils/audio';
+import { isAdminSession } from '../utils/security';
 
 interface HeaderProps {
   username: string;
@@ -49,7 +50,7 @@ export default function Header({
   const isAdmin = currentUser?.role === 'admin';
   const canReturnToAdmin = Boolean(
     onOpenAdmin &&
-      (isAdmin || localStorage.getItem('isAdmin') === 'true' || localStorage.getItem('SHOPNO_PURON_ADMIN_USER_V2'))
+      (isAdmin || isAdminSession() || localStorage.getItem('user_role') === 'admin' || !!localStorage.getItem('admin_token'))
   );
   const displayBalance = (() => {
     try {
