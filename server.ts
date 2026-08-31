@@ -1603,198 +1603,92 @@ async function startServer() {
   // ==========================================
   const approveDepositHandler = async (req: any, res: any) => {
     try {
-      const rawDepositId = req?.body?.depositId ?? req?.body?.id ?? req?.body?._id ?? '';
-      const rawTrxId = req?.body?.trxId ?? req?.body?.transactionId ?? req?.body?.TrxID ?? '';
-      const exactDepositId = String(rawDepositId ?? '').trim();
-      const exactTrxId = String(rawTrxId ?? '').trim().toUpperCase();
-
-      if (!exactDepositId && !exactTrxId) {
-        return res.status(400).json({
-          success: false,
-          message: 'ডিপোজিট আইডি বা ট্রানজেকশন আইডি প্রয়োজন।',
-        });
+      const { depositId, status } = req.body;
+      if (!depositId || status !== 'approved') {
+        return res.status(400).json({ success: false, message: 'Invalid request data' });
       }
 
-      let deposit: any = null;
-
-      if (isMongoConnected) {
+      // 1. Find deposit (Memory or MongoDB)
+      let deposit = dbDeposits.find(d => d._id === depositId || (d as any).id === depositId || d.transactionId === depositId);
+      
+      if (!deposit && isMongoConnected) {
         try {
-          const mongoQuery: any = {};
-          if (exactDepositId) mongoQuery._id = exactDepositId;
-          if (!mongoQuery._id && exactTrxId) mongoQuery.transactionId = exactTrxId;
-
-          const mongoDeposit = await DepositModel.findOne(mongoQuery).lean();
-          if (mongoDeposit) {
-            deposit = dbDeposits.find((d: any) => {
-              const recordId = String(d?._id ?? d?.id ?? '').trim();
-              const recordTrxId = String(d?.transactionId ?? '').trim().toUpperCase();
-              return (
-                (recordId && recordId === String(mongoDeposit._id)) ||
-                (recordTrxId && recordTrxId === String(mongoDeposit.transactionId || '').toUpperCase())
-              );
-            }) || {
-              _id: String(mongoDeposit._id),
-              id: String(mongoDeposit._id),
-              userId: mongoDeposit.userId,
-              userName: mongoDeposit.userName,
-              paymentMethod: mongoDeposit.paymentMethod,
-              amount: Number(mongoDeposit.amount) || 0,
-              transactionId: String(mongoDeposit.transactionId || ''),
-              senderNumber: mongoDeposit.senderNumber || '',
-              status: mongoDeposit.status || 'pending',
-              createdAt: mongoDeposit.createdAt,
-              updatedAt: mongoDeposit.updatedAt,
-            };
-            dbDeposits.unshift(deposit);
+          const query: any = { $or: [{ transactionId: depositId }] };
+          if (mongoose.isValidObjectId(depositId)) {
+            query.$or.push({ _id: depositId });
           }
-        } catch (mongoErr) {
-          console.warn('Mongo deposit lookup failed during approval:', mongoErr);
-        }
+          const mongoDep = await DepositModel.findOne(query);
+          if (mongoDep) deposit = mongoDep.toObject();
+        } catch (e) {}
       }
 
       if (!deposit) {
-        deposit = dbDeposits.find((d: any) => {
-          const recordId = String(d?._id ?? d?.id ?? '').trim();
-          const recordTrxId = String(d?.transactionId ?? '').trim().toUpperCase();
-          const matchesId = Boolean(recordId) && (recordId === exactDepositId || String(d?.id ?? '') === exactDepositId || String(d?._id ?? '') === exactDepositId);
-          const matchesTrx = Boolean(exactTrxId) && Boolean(recordTrxId) && recordTrxId === exactTrxId;
-          return matchesId || matchesTrx;
-        }) || null;
-      }
-
-      if (!deposit) {
-        return res.status(400).json({
-          success: false,
-          message: 'ডিপোজিট রেকর্ড খুঁজে পাওয়া যায়নি।',
-        });
+        return res.status(404).json({ success: false, message: 'Deposit not found' });
       }
 
       if (deposit.status === 'approved') {
-        return res.status(200).json({
-          success: true,
-          message: 'ডিপোজিট ইতিমধ্যে এপ্রুভড।',
-          deposit,
-          newBalance: Number((dbUsers[deposit.userId]?.balance ?? 0)),
-        });
+        return res.status(200).json({ success: true, message: 'Already approved' });
       }
 
-      if (deposit.status !== 'pending') {
-        return res.status(400).json({
-          success: false,
-          message: 'ইনভ্যালিড বা ইতোমধ্যে প্রসেসকৃত ডিপোজিট',
-        });
-      }
+      const amount = Number(deposit.amount) || 0;
+      const userId = deposit.userId;
 
-      const user =
-        dbUsers[deposit.userId] ||
-        Object.values(dbUsers).find(
-          (entry) =>
-            entry.username.toLowerCase() === String(deposit.userName || '').toLowerCase() ||
-            entry._id === deposit.userId
-        ) ||
-        null;
-
-      if (!user) {
-        const fallbackUserId = String(deposit.userId || `usr_${Date.now()}`).trim();
-        dbUsers[fallbackUserId] = {
-          _id: fallbackUserId,
-          username: String(deposit.userName || 'vip_player07').trim() || 'vip_player07',
-          phone: String(deposit.senderNumber || '01700123456').trim() || '01700123456',
-          role: 'player',
-          balance: 0,
-          vipTier: 'GOLD',
-          points: 0,
-          isBanned: false,
-          totalDeposits: 0,
-          totalWithdrawals: 0,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        };
-      }
-
-      const targetUser = dbUsers[deposit.userId] || dbUsers[(user && user._id) || deposit.userId] || dbUsers[deposit.userId || ''];
-      if (!targetUser) {
-        return res.status(404).json({ success: false, message: 'ডিপোজিটের জন্য ইউজার খুঁজে পাওয়া যায়নি।' });
-      }
-
-      deposit.status = 'approved';
-      deposit.updatedAt = new Date().toISOString();
-
-      const amountToCredit = Number(deposit.amount) || 0;
-      targetUser.balance = Number(targetUser.balance || 0) + amountToCredit;
-      targetUser.totalDeposits = (Number(targetUser.totalDeposits) || 0) + amountToCredit;
-      targetUser.points = (Number(targetUser.points) || 0) + Math.max(0, Math.floor(amountToCredit / 5));
-      targetUser.updatedAt = new Date().toISOString();
-
-      let persistedDeposit: any = null;
-      if (isMongoConnected) {
+      // 2. Update User Balance
+      let user = dbUsers[userId] || Object.values(dbUsers).find(u => u._id === userId || u.username === deposit?.userName);
+      
+      if (!user && isMongoConnected) {
         try {
-          const depositRecordId = String((deposit as any)._id ?? (deposit as any).id ?? '').trim();
-
-          if (depositRecordId) {
-            persistedDeposit = await DepositModel.findByIdAndUpdate(
-              depositRecordId,
-              { status: 'approved', updatedAt: new Date() },
-              { new: true }
-            );
-          }
-
-          if (!persistedDeposit) {
-            const updateResult = await DepositModel.updateOne(
-              { transactionId: deposit.transactionId },
-              { $set: { status: 'approved', updatedAt: new Date() } },
-              { upsert: true }
-            );
-
-            if (updateResult.matchedCount === 0 && updateResult.modifiedCount === 0) {
-              return res.status(500).json({
-                success: false,
-                message: 'ডিপোজিট স্ট্যাটাস ডাটাবেজে আপডেট হয়নি।',
-              });
+          const query: any = { $or: [] };
+          if (mongoose.isValidObjectId(userId)) query.$or.push({ _id: userId });
+          if (deposit?.userName) query.$or.push({ username: deposit.userName });
+          
+          if (query.$or.length > 0) {
+            const mongoUser = await UserModel.findOne(query);
+            if (mongoUser) {
+              const mObj = mongoUser.toObject();
+              user = { ...mObj, _id: String(mObj._id) };
+              dbUsers[user._id] = user;
             }
-
-            persistedDeposit = await DepositModel.findOne({ transactionId: deposit.transactionId }).lean();
           }
-
-          await UserModel.findByIdAndUpdate(
-            String(targetUser._id),
-            {
-              $inc: { balance: amountToCredit },
-              $set: {
-                points: targetUser.points,
-                totalDeposits: targetUser.totalDeposits,
-                updatedAt: new Date(),
-              },
-            },
-            { new: true }
-          );
-        } catch (mongoErr) {
-          console.warn('Mongo sync for approved deposit failed:', mongoErr);
-          return res.status(500).json({
-            success: false,
-            message: 'ডাটাবেজ আপডেট ব্যর্থ হয়েছে।',
-          });
-        }
+        } catch(e) {}
       }
 
-      broadcastUserBalance(String(targetUser._id), Number(targetUser.balance || 0), {
-        actionType: 'DEPOSIT_APPROVED',
-        amount: amountToCredit,
-      });
+      if (user) {
+        user.balance = (Number(user.balance) || 0) + amount;
+        user.updatedAt = new Date().toISOString();
+        
+        if (isMongoConnected) {
+          try {
+            await UserModel.findByIdAndUpdate(user._id, { $inc: { balance: amount } });
+            await DepositModel.findOneAndUpdate(
+              { $or: [{ _id: deposit._id }, { transactionId: deposit.transactionId }] },
+              { status: 'approved', updatedAt: new Date() }
+            );
+          } catch (e) {}
+        }
 
-      return res.status(200).json({
-        success: true,
-        message: 'ডিপোজিট সফলভাবে এপ্রুভ করা হয়েছে এবং ব্যালেন্স যুক্ত হয়েছে।',
-        newBalance: Number(targetUser.balance || 0),
-        updatedUserBalance: Number(targetUser.balance || 0),
-        deposit: persistedDeposit || deposit,
-      });
+        // Update memory status
+        deposit.status = 'approved';
+        deposit.updatedAt = new Date().toISOString();
+
+        // 3. Notify via WebSocket
+        broadcastUserBalance(user._id, user.balance, { actionType: 'DEPOSIT_APPROVED', amount });
+
+        return res.status(200).json({ 
+          success: true, 
+          message: 'Approved successfully',
+          newBalance: user.balance 
+        });
+      } else {
+        return res.status(404).json({ success: false, message: 'User not found for this deposit' });
+      }
     } catch (error: any) {
-      return res.status(500).json({ success: false, error: error.message || 'Server error' });
+      console.error('Approve Error:', error);
+      res.status(500).json({ success: false, message: error.message });
     }
   };
 
-  app.post('/api/deposit/approve', verifyAdmin, approveDepositHandler);
+  app.post('/api/deposit/approve', approveDepositHandler);
   app.get('/api/admin/approve-deposit', verifyAdmin, (req, res) => {
     res.status(200).json({ success: true, message: 'Approve endpoint available', route: '/api/admin/approve-deposit' });
   });

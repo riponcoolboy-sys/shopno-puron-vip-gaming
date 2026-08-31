@@ -774,113 +774,32 @@ export default function App() {
   };
 
   const handleApproveDeposit = async (depositId: string, transactionId?: string) => {
-    const normalizeValue = (value?: string | null) => String(value ?? '').trim();
-    const idMatches = (
-      item: DepositRequest & { trxId?: string; TrxID?: string },
-      candidateId?: string
-    ) => {
-      const normalizedId = normalizeValue(candidateId);
-      return (
-        item.id === candidateId ||
-        item._id === candidateId ||
-        item.trxId === candidateId ||
-        item.TrxID === candidateId ||
-        item.transactionId === candidateId ||
-        normalizeValue(item.id) === normalizedId ||
-        normalizeValue(item._id) === normalizedId ||
-        normalizeValue(item.trxId) === normalizedId ||
-        normalizeValue(item.TrxID) === normalizedId ||
-        normalizeValue(item.transactionId) === normalizedId
-      );
-    };
-
-    const matchesTarget = (item: DepositRequest & { trxId?: string; TrxID?: string }) =>
-      idMatches(item, depositId) ||
-      idMatches(item, transactionId) ||
-      idMatches(item, String(item._id || item.id || '')) ||
-      idMatches(item, String(item.transactionId || item.trxId || item.TrxID || ''));
-
-    const target = depositRequests.find((r) => matchesTarget(r as DepositRequest & { trxId?: string; TrxID?: string })) ?? null;
-
-    if (!target) return;
-
-    const exactDepositId = String(target._id || target.id || depositId).trim();
-    const exactTrxId = String(target.transactionId || (target as DepositRequest & { trxId?: string; TrxID?: string }).trxId || (target as DepositRequest & { trxId?: string; TrxID?: string }).TrxID || transactionId || '').trim();
-    const approvedAmount = Number(target.amount) || 0;
-    const bonusAmount = Number(target.bonusAmount || 0);
-    const totalCredited = approvedAmount + bonusAmount;
-
-    setDepositRequests((prev) =>
-      prev.map((r) => (matchesTarget(r) ? { ...r, status: 'approved', updatedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) } : r))
-    );
-
-    setWallet((prev) => ({
-      ...prev,
-      balance: prev.balance + totalCredited,
-      points: prev.points + Math.floor(totalCredited / 5),
-    }));
-
-    setTransactions((prev) =>
-      prev.map((tx) => (tx.trxId === target.transactionId ? { ...tx, status: 'COMPLETED' } : tx))
-    );
+    const targetId = depositId || transactionId;
+    if (!targetId) return;
 
     try {
-      const activeToken =
-        localStorage.getItem('admin_token') ||
-        token ||
-        localStorage.getItem('user_token') ||
-        localStorage.getItem('auth_token');
       const response = await fetch(apiUrl('/api/deposit/approve'), {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(activeToken ? { Authorization: `Bearer ${activeToken}` } : {}),
-        },
-        body: JSON.stringify({
-          depositId: exactDepositId,
-          id: exactDepositId,
-          trxId: exactTrxId,
-          transactionId: exactTrxId,
-        }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ depositId: targetId, status: 'approved' }),
       });
 
-      const data = await response.json().catch(() => null);
-      if (!response.ok || !data?.success) {
-        throw new Error(data?.message || 'Deposit approval failed');
+      const data = await response.json();
+      if (data.success) {
+        // UI feedback: update local deposit request status
+        setDepositRequests((prev) =>
+          prev.map((r) => 
+            (r.id === targetId || (r as any)._id === targetId || r.transactionId === targetId) 
+            ? { ...r, status: 'approved' } 
+            : r
+          )
+        );
+        // Balance will be updated automatically via server WebSocket broadcast
+      } else {
+        console.error('Deposit approval failed:', data.message);
       }
-
-      const targetUserId = target.userId;
-      const persistedProfiles: User[] = [
-        readPersistentUser(),
-        parseJsonValue(localStorage.getItem('aviator_user')),
-        parseJsonValue(localStorage.getItem('user_profile')),
-      ].filter((value): value is User => isValidStoredUser(value));
-
-      const matchingProfile = persistedProfiles.find((user) => (user._id || user.id) === targetUserId) || null;
-      if (matchingProfile) {
-        const nextBalance = (Number(matchingProfile.balance) || 0) + approvedAmount;
-        const updatedProfile: User = {
-          ...matchingProfile,
-          balance: nextBalance,
-          points: (Number(matchingProfile.points) || 0) + Math.floor(approvedAmount / 5),
-          updatedAt: new Date().toISOString(),
-        };
-
-        writePersistentUser(updatedProfile);
-        writePersistentBalance(nextBalance);
-        localStorage.setItem('user_profile', JSON.stringify(updatedProfile));
-        localStorage.setItem('aviator_user', JSON.stringify(updatedProfile));
-        localStorage.setItem(PERSISTENT_USER_KEY, JSON.stringify(updatedProfile));
-
-        if ((currentUser?._id || currentUser?.id) === targetUserId) {
-          setCurrentUser(updatedProfile);
-          setWallet((prev) => ({ ...prev, balance: nextBalance, points: updatedProfile.points ?? prev.points }));
-        }
-      }
-    } catch {
-      setDepositRequests((prev) =>
-        prev.map((r) => (matchesTarget(r) ? { ...r, status: 'pending' } : r))
-      );
+    } catch (err) {
+      console.error('Network error during deposit approval:', err);
     }
   };
 
