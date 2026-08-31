@@ -111,10 +111,10 @@ export const sanitizeInputsMiddleware = (req: express.Request, res: express.Resp
 // ========================================================
 // MongoDB ক্লাউড ডাটাবেজ কানেকশন (Persistent Cloud Database)
 // ========================================================
-const MONGO_URI = process.env.MONGODB_URI;
+const MONGO_URI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/aviator_fallback';
 
-if (!MONGO_URI) {
-  throw new Error('MONGODB_URI is required. Refusing to start without persistent storage.');
+if (!process.env.MONGODB_URI) {
+  console.warn('MONGODB_URI missing; using local fallback database connection.');
 }
 
 let isMongoConnected = false;
@@ -497,6 +497,7 @@ export const verifyAdmin = (req: express.Request, res: express.Response, next: e
 
 async function startServer() {
   const app = express();
+  const PORT = Number(process.env.PORT) || 3001;
   const corsOptions = {
     origin: '*',
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -513,7 +514,6 @@ async function startServer() {
     next();
   });
 
-  const PORT = 3000;
   const httpServer = http.createServer(app);
 
   // ========================================================
