@@ -4,21 +4,24 @@ interface AdminModalProps {
   isOpen?: boolean;
   onClose?: () => void;
   onSuccess?: () => void;
+  setIsAdmin?: (isAdmin: boolean) => void;
 }
 
-export default function AdminModal({ isOpen = true, onClose, onSuccess }: AdminModalProps) {
+export default function AdminModal({ isOpen = true, onClose, onSuccess, setIsAdmin }: AdminModalProps) {
   const [showAdminModal, setShowAdminModal] = useState(isOpen);
   
   // ১. ইমেইল স্টেটটি সম্পূর্ণ ফাঁকা ("") রাখা হলো
   const [adminEmail, setAdminEmail] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
 
-  const handleAdminSubmit = async (e: React.FormEvent) => {
+  const handleAdminSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
     // ইমেইল এবং পাসওয়ার্ড দুইটাই সঠিক হলে ঢুকতে দেবে
     if (adminEmail.trim() === "riponcoolboy@gmail.com" && adminPassword === "Akashvai92@#*") {
       alert("লগইন সফল হয়েছে!");
+      setIsAdmin?.(true);
+      localStorage.setItem('isAdmin', 'true');
       setShowAdminModal(false);
       if (onSuccess) onSuccess();
       if (onClose) onClose();

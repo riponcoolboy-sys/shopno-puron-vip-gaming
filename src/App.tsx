@@ -259,7 +259,8 @@ export default function App() {
         localStorage.getItem('user_token') ||
         localStorage.getItem('auth_token');
       const savedRole =
-        (localStorage.getItem('user_role') as 'player' | 'admin') || null;
+        (localStorage.getItem('user_role') as 'player' | 'admin') ||
+        (localStorage.getItem('isAdmin') === 'true' ? 'admin' : null);
       const rawStoredUser = savedRole === 'admin'
         ? localStorage.getItem(ADMIN_USER_KEY)
         : localStorage.getItem(PERSISTENT_USER_KEY);
@@ -599,6 +600,7 @@ export default function App() {
     localStorage.removeItem('user_token');
     localStorage.removeItem('auth_token');
     localStorage.removeItem('admin_token');
+    localStorage.removeItem('isAdmin');
     localStorage.removeItem('user_role');
     localStorage.removeItem(PERSISTENT_BALANCE_KEY);
     localStorage.removeItem('shopno_puron_balance');
@@ -949,6 +951,7 @@ export default function App() {
           </div>
         )}
         <SecureLogin
+          setIsAdmin={setIsAdmin}
           onLoginSuccess={(userObj: any, userRole?: string) => {
             if (typeof userObj === 'string') {
               const tok = userObj;
