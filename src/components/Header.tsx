@@ -47,10 +47,10 @@ export default function Header({
   onLogout,
 }: HeaderProps) {
   const [showProfileMenu, setShowProfileMenu] = useState(false);
-  const isAdmin = currentUser?.role === 'admin';
+  const isAdmin = currentUser?.role === 'admin' || isAdminSession() || localStorage.getItem('user_role') === 'admin';
   const canReturnToAdmin = Boolean(
     onOpenAdmin &&
-      (isAdmin || isAdminSession() || localStorage.getItem('user_role') === 'admin' || !!localStorage.getItem('admin_token'))
+      (isAdmin || !!localStorage.getItem('admin_token'))
   );
   const displayBalance = (() => {
     try {
@@ -210,16 +210,17 @@ export default function Header({
               </div>
 
               <div className="space-y-1">
-                {isAdmin && onOpenAdmin && (
+                {canReturnToAdmin && (
                   <button
                     onClick={() => {
                       setShowProfileMenu(false);
-                      onOpenAdmin();
+                      sounds.playClick();
+                      onOpenAdmin?.();
                     }}
-                    className="w-full text-left px-2 py-1.5 rounded-lg text-xs text-[#FFC700] hover:bg-[#FFC700]/10 flex items-center justify-between font-bold"
+                    className="w-full text-left px-2 py-1.5 rounded-lg text-xs text-purple-200 hover:bg-purple-950/40 flex items-center justify-between font-bold border border-purple-500/40 bg-purple-950/20"
                   >
                     <span className="flex items-center gap-1.5">
-                      <Settings size={13} /> এডমিন কন্ট্রোল সেন্টার
+                      <Shield size={13} /> 🛡️ এডমিন প্যানেল
                     </span>
                   </button>
                 )}

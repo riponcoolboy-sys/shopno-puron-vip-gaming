@@ -1572,15 +1572,17 @@ app.use(cors());
   // ==========================================
   const approveDepositHandler = async (req: any, res: any) => {
     try {
-      const rawDepositId = req.body?.depositId || req.body?.id || '';
+      const rawDepositId = req.body?.depositId || req.body?.id || req.body?._id || '';
       const rawTrxId = req.body?.trxId || req.body?.transactionId || req.body?.TrxID || '';
       const exactDepositId = String(rawDepositId || '').trim();
       const exactTrxId = String(rawTrxId || '').trim().toUpperCase();
 
       const deposit =
         dbDeposits.find((d) => {
-          const matchesId = d._id === exactDepositId || (d as any).id === exactDepositId;
-          const matchesTrx = Boolean(exactTrxId) && d.transactionId && d.transactionId.toUpperCase() === exactTrxId;
+          const recordId = String((d as any)._id || (d as any).id || '').trim();
+          const recordTrxId = String(d.transactionId || '').trim().toUpperCase();
+          const matchesId = Boolean(recordId) && (recordId === exactDepositId || (d as any).id === exactDepositId || (d as any)._id === exactDepositId);
+          const matchesTrx = Boolean(exactTrxId) && Boolean(recordTrxId) && recordTrxId === exactTrxId;
           return matchesId || matchesTrx;
         }) || null;
 
@@ -1640,9 +1642,18 @@ app.use(cors());
 
       if (isMongoConnected) {
         try {
+          const query = {
+            $or: [
+              { _id: deposit._id },
+              { id: (deposit as any).id || deposit._id },
+              { transactionId: deposit.transactionId },
+              ...(exactTrxId ? [{ transactionId: exactTrxId }] : []),
+            ],
+          };
+
           await Promise.all([
             DepositModel.findOneAndUpdate(
-              { $or: [{ _id: deposit._id }, { transactionId: deposit.transactionId }, { id: (deposit as any).id || deposit._id }] },
+              query,
               { status: 'approved', updatedAt: new Date() },
               { new: true }
             ),

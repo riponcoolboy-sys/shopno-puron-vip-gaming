@@ -353,27 +353,38 @@ export default function AdminDashboard({
   // Approve Deposit Handler
   const handleApproveDeposit = async (id: string, trxId?: string) => {
     const target =
-      deposits.find((d) => d.id === id || d._id === id || d.transactionId === id || d.transactionId === trxId || d.id === trxId) ??
-      null;
+      deposits.find((d) => {
+        const candidates = [d.id, d._id, d.transactionId, trxId, id].filter(Boolean) as string[];
+        return candidates.some((candidate) => candidate === id || candidate === trxId || candidate === d.transactionId);
+      }) ?? null;
+
     const exactId = String(target?._id || target?.id || id).trim();
     const exactTrxId = String(target?.transactionId || trxId || '').trim();
+
+    const matchesDeposit = (d: DepositRequest) => {
+      const candidateIds = [d.id, d._id, d.transactionId, exactId, exactTrxId, id, trxId].filter(Boolean) as string[];
+      return candidateIds.some((candidate) => {
+        const normalized = String(candidate).trim();
+        return (
+          normalized === exactId ||
+          normalized === id ||
+          normalized === trxId ||
+          normalized === exactTrxId ||
+          normalized === d.transactionId ||
+          normalized === d.id ||
+          normalized === d._id
+        );
+      });
+    };
 
     sounds.playWin();
 
     setDeposits((prev) =>
-      prev.map((d) => {
-        const matches =
-          d.id === id ||
-          d._id === id ||
-          d.transactionId === id ||
-          d.id === exactId ||
-          d._id === exactId ||
-          d.transactionId === exactTrxId ||
-          d.transactionId === trxId;
-        return matches
+      prev.map((d) => (
+        matchesDeposit(d)
           ? { ...d, status: 'approved', updatedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }
-          : d;
-      })
+          : d
+      ))
     );
 
     try {
@@ -382,17 +393,7 @@ export default function AdminDashboard({
       showToast('ডিপোজিট সফলভাবে অনুমোদিত হয়েছে এবং প্লেয়ার ব্যালেন্স ক্রেডিট করা হয়েছে!', 'success');
     } catch {
       setDeposits((prev) =>
-        prev.map((d) => {
-          const matches =
-            d.id === id ||
-            d._id === id ||
-            d.transactionId === id ||
-            d.id === exactId ||
-            d._id === exactId ||
-            d.transactionId === exactTrxId ||
-            d.transactionId === trxId;
-          return matches ? { ...d, status: 'pending' } : d;
-        })
+        prev.map((d) => (matchesDeposit(d) ? { ...d, status: 'pending', updatedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) } : d))
       );
       showToast('ডিপোজিট এপ্রুভ ব্যর্থ হয়েছে।', 'error');
     }

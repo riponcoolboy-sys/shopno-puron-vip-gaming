@@ -58,6 +58,7 @@ interface ProfileModalProps {
   onOpenReferral?: () => void;
   onOpenRewards?: () => void;
   onOpenSupport?: () => void;
+  onOpenAdmin?: () => void;
   onWithdraw?: (amount: number, method: 'bKash' | 'Nagad' | 'Rocket' | 'Upay', phone: string) => boolean;
   onLogout?: () => void;
 }
@@ -75,6 +76,7 @@ export default function ProfileModal({
   onOpenReferral,
   onOpenRewards,
   onOpenSupport,
+  onOpenAdmin,
   onWithdraw,
   onLogout,
 }: ProfileModalProps) {
@@ -175,6 +177,14 @@ export default function ProfileModal({
   const usernameDisplay = displayUser?.username || username || 'VIP_Player';
   const memberId = displayUser?._id?.slice(-8).toUpperCase() || displayUser?.id?.slice(-8).toUpperCase() || 'SP982410';
   const vipLevel = displayUser?.vipLevel || 4;
+  const canReturnToAdmin = Boolean(
+    onOpenAdmin &&
+      (displayUser?.role === 'admin' ||
+        !!localStorage.getItem('isAdmin') ||
+        !!localStorage.getItem('admin_token') ||
+        localStorage.getItem('user_role') === 'admin' ||
+        typeof window !== 'undefined' && (window as any).isAdminSession === true)
+  );
 
   const handleRefreshBalance = async () => {
     sounds.playClick();
