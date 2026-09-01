@@ -1,3 +1,5 @@
+import dotenv from 'dotenv';
+dotenv.config();
 import express from 'express';
 import http from 'http';
 import path from 'path';
@@ -171,7 +173,7 @@ export const WithdrawModel: mongoose.Model<any> = mongoose.models.Withdraw || mo
 export const PaymentSettingsModel: mongoose.Model<any> = mongoose.models.PaymentSettings || mongoose.model('PaymentSettings', paymentSettingsSchema);
 
 // ডাটাবেজ কানেকশন ইনিশিয়ালাইজেশন
-mongoose.connect(MONGO_URI, {
+mongoose.connect((process.env.MONGODB_URI as string) || '', {
   serverSelectionTimeoutMS: 5000,
 })
   .then(() => {
