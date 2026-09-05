@@ -1327,10 +1327,11 @@ async function startServer() {
         });
       }
 
-      const cleanTrx = transactionId.trim().toUpperCase();
-      const existing = dbDeposits.find(
-        (d) => d.transactionId.toUpperCase() === cleanTrx && d.status !== 'rejected'
-      );
+      const cleanTrx = String(transactionId).trim().toUpperCase();
+      const existing = await DepositModel.findOne({
+        transactionId: cleanTrx,
+        status: { $ne: 'rejected' },
+      });
       if (existing) {
         return res.status(400).json({
           success: false,
@@ -1338,25 +1339,28 @@ async function startServer() {
         });
       }
 
-      const user = (userId && dbUsers[userId]) || Object.values(dbUsers).find(
-        (u) => u._id === userId || (userName && u.username.toLowerCase() === String(userName).toLowerCase())
-      );
-      const resolvedUserName = userName || user?.username || 'vip_player07';
+      const queryUserId = String(userId).trim();
+      const lookupUserName = String(userName || '').trim();
+      const user = await UserModel.findOne({
+        $or: [
+          ...(mongoose.isValidObjectId(queryUserId) ? [{ _id: queryUserId }] : []),
+          { username: queryUserId.toLowerCase() },
+          ...(lookupUserName ? [{ username: lookupUserName.toLowerCase() }] : []),
+        ],
+      });
+      const resolvedUserName = lookupUserName || user?.username || 'vip_player07';
+      const resolvedUserId = queryUserId || user?._id?.toString() || 'usr_78912';
 
-      const newDeposit: DepositDoc = {
-        _id: `dep_${Date.now()}`,
-        userId: userId || user?._id || 'usr_78912',
+      const newDepositDoc = await DepositModel.create({
+        userId: resolvedUserId,
         userName: resolvedUserName,
         paymentMethod,
         amount: Number(amount),
         transactionId: cleanTrx,
-        senderNumber: senderNumber.trim(),
+        senderNumber: String(senderNumber).trim(),
         status: 'pending',
-        createdAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        updatedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      };
-
-      dbDeposits.unshift(newDeposit);
+      });
+      const newDeposit = newDepositDoc.toObject ? newDepositDoc.toObject() : newDepositDoc;
 
       const depositEvent = JSON.stringify({
         type: 'DEPOSIT_CREATED',
@@ -1610,82 +1614,68 @@ async function startServer() {
         return res.status(400).json({ success: false, message: 'Invalid deposit ID or status' });
       }
 
-      // 1. Find the Deposit Record using any possible ID format (MongoDB or Memory fallback)
-      let depositDoc: any = null;
-      if (isMongoConnected) {
-        const query: any = { $or: [{ transactionId: depositId }, { _id: mongoose.isValidObjectId(depositId) ? depositId : null }] };
-        depositDoc = await DepositModel.findOne({ $or: query.$or.filter((q: any) => q._id !== null || q.transactionId) });
-      }
-
-      // Memory fallback if MongoDB fails or record not in MongoDB yet
-      if (!depositDoc) {
-        depositDoc = dbDeposits.find(d => d._id === depositId || (d as any).id === depositId || d.transactionId === depositId);
-      }
+      const depositDoc = await DepositModel.findOne({
+        $or: [
+          { transactionId: String(depositId).trim().toUpperCase() },
+          ...(mongoose.isValidObjectId(String(depositId)) ? [{ _id: String(depositId) }] : []),
+        ],
+      });
 
       if (!depositDoc) {
         return res.status(404).json({ success: false, message: 'Deposit request not found in database' });
       }
 
       if (depositDoc.status === 'approved') {
-        return res.status(200).json({ success: true, message: 'Deposit already approved', updatedDeposit: depositDoc });
+        return res.status(200).json({ success: true, message: 'Deposit already approved', updatedDeposit: depositDoc.toObject ? depositDoc.toObject() : depositDoc });
       }
 
       const amount = Number(depositDoc.amount) || 0;
-      const userId = depositDoc.userId;
+      const userId = String(depositDoc.userId || '');
+      const lookupUserName = String(depositDoc.userName || '').trim();
 
-      // 2. Locate User and Update Balance
-      let userDoc: any = null;
-      if (isMongoConnected) {
-        const userQuery: any = { $or: [{ username: depositDoc.userName }] };
-        if (mongoose.isValidObjectId(userId)) userQuery.$or.push({ _id: userId });
-        userDoc = await UserModel.findOne(userQuery);
-      }
+      let userDoc = await UserModel.findOne({
+        $or: [
+          ...(mongoose.isValidObjectId(userId) ? [{ _id: userId }] : []),
+          ...(lookupUserName ? [{ username: lookupUserName.toLowerCase() }] : []),
+        ],
+      });
 
-      if (!userDoc) {
-        userDoc = dbUsers[userId] || Object.values(dbUsers).find(u => u._id === userId || u.username === depositDoc.userName);
+      if (!userDoc && userId) {
+        userDoc = await UserModel.findOne({ username: userId.toLowerCase() });
       }
 
       if (!userDoc) {
         return res.status(404).json({ success: false, message: 'User associated with this deposit not found' });
       }
 
-      // 3. PERSIST UPDATES (WAIT FOR DATABASE TO CONFIRM)
-      if (isMongoConnected) {
-        // Atomic balance increment and status update
-        await UserModel.updateOne({ _id: userDoc._id }, { $inc: { balance: amount } });
-        depositDoc = await DepositModel.findOneAndUpdate(
-          { _id: depositDoc._id },
-          { status: 'approved', updatedAt: new Date() },
-          { new: true }
-        );
-      }
+      const updatedUser = await UserModel.findOneAndUpdate(
+        { _id: userDoc._id },
+        { $inc: { balance: amount }, $set: { updatedAt: new Date() } },
+        { new: true }
+      );
 
-      // Update In-Memory cache for consistency
-      const memoryUser = dbUsers[userDoc._id || userId] || Object.values(dbUsers).find(u => u._id === String(userDoc._id));
-      if (memoryUser) {
-        memoryUser.balance = (Number(memoryUser.balance) || 0) + amount;
-        memoryUser.updatedAt = new Date().toISOString();
-      }
+      const updatedDeposit = await DepositModel.findOneAndUpdate(
+        { _id: depositDoc._id },
+        { status: 'approved', updatedAt: new Date() },
+        { new: true }
+      );
 
-      const memoryDeposit = dbDeposits.find(d => d._id === String(depositDoc._id) || d.transactionId === depositDoc.transactionId);
-      if (memoryDeposit) {
-        memoryDeposit.status = 'approved';
-        memoryDeposit.updatedAt = new Date().toISOString();
-      }
+      const serializableUser = updatedUser ? (updatedUser.toObject ? updatedUser.toObject() : updatedUser) : userDoc.toObject ? userDoc.toObject() : userDoc;
+      const serializableDeposit = updatedDeposit ? (updatedDeposit.toObject ? updatedDeposit.toObject() : updatedDeposit) : depositDoc.toObject ? depositDoc.toObject() : depositDoc;
+      const newBalance = Number(serializableUser.balance || 0);
 
-      // 4. BroadCast via WebSocket for real-time UI balance update
-      broadcastUserBalance(String(userDoc._id || userId), Number(userDoc.balance) + amount, { 
-        actionType: 'DEPOSIT_APPROVED', 
+      // BroadCast via WebSocket for real-time UI balance update
+      broadcastUserBalance(String(serializableUser._id), newBalance, {
+        actionType: 'DEPOSIT_APPROVED',
         amount,
-        deposit: depositDoc 
+        deposit: serializableDeposit,
       });
 
-      // 5. Explicitly return success after database confirmation
-      return res.status(200).json({ 
-        success: true, 
-        message: 'Deposit approved successfully', 
-        updatedDeposit: depositDoc,
-        newBalance: (Number(userDoc.balance) + amount)
+      return res.status(200).json({
+        success: true,
+        message: 'Deposit approved successfully',
+        updatedDeposit: serializableDeposit,
+        newBalance,
       });
 
     } catch (error: any) {
