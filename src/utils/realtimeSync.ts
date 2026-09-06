@@ -70,17 +70,6 @@ class RealtimeSyncManager {
   public connect(userId?: string) {
     this.destroyed = false;
 
-    if (this.isAdminSession()) {
-      this.pausePolling();
-      if (this.ws) {
-        this.ws.close();
-        this.ws = null;
-      }
-      this.isConnecting = false;
-      this.isConnected = false;
-      return;
-    }
-
     if (userId) {
       this.currentUserId = userId;
     }

@@ -42,6 +42,7 @@ import {
   AdminStats,
 } from '../types';
 import { sounds } from '../utils/audio';
+import { realtimeSync } from '../utils/realtimeSync';
 import {
   getGlobalRTPConfig,
   setGlobalRTPConfig,
@@ -253,6 +254,60 @@ export default function AdminDashboard({
       setDeposits(propDepositRequests);
     }
   }, [propDepositRequests]);
+
+  // Real-time deposit updates via WebSocket (DEPOSIT_APPROVED / DEPOSIT_STATUS_UPDATED / DEPOSIT_CREATED)
+  useEffect(() => {
+    const mapDeposit = (d: any): DepositRequest => ({
+      id: d._id || d.id,
+      _id: d._id || d.id,
+      userId: d.userId,
+      userName: d.userName,
+      paymentMethod: d.paymentMethod,
+      amount: Number(d.amount) || 0,
+      transactionId: d.transactionId,
+      senderNumber: d.senderNumber,
+      status: d.status,
+      rejectionReason: d.rejectionReason,
+      createdAt: d.createdAt,
+      updatedAt: d.updatedAt,
+    });
+
+    const mergeDeposit = (list: DepositRequest[], incoming: DepositRequest): DepositRequest[] => {
+      const idx = list.findIndex(
+        (d) => d.id === incoming.id || d._id === incoming.id || d.transactionId === incoming.transactionId
+      );
+      if (idx >= 0) {
+        const next = [...list];
+        next[idx] = { ...next[idx], ...incoming };
+        return next;
+      }
+      return [incoming, ...list];
+    };
+
+    const unsubscribe = realtimeSync.on('deposit_update', (data: any) => {
+      if (Array.isArray(data.deposits)) {
+        const incomingList = data.deposits.map(mapDeposit);
+        setDeposits((prev) => incomingList.reduce(mergeDeposit, [...prev]));
+        return;
+      }
+
+      const incoming = data.deposit;
+      if (!incoming) return;
+      const mapped = mapDeposit(incoming);
+      const wasPending = deposits.some((d) => (d.id === mapped.id || d._id === mapped.id || d.transactionId === mapped.transactionId) && d.status === 'pending');
+      setDeposits((prev) => mergeDeposit(prev, mapped));
+
+      // Keep the pending-approval KPI live when a deposit's status changes
+      if (wasPending && mapped.status !== 'pending') {
+        setStats((prevStats) => ({
+          ...prevStats,
+          pendingDepositsCount: Math.max(0, (prevStats.pendingDepositsCount || 0) - 1),
+        }));
+      }
+    });
+
+    return unsubscribe;
+  }, [deposits]);
 
   // Fetch all live admin data from backend
   const fetchAllAdminData = async () => {

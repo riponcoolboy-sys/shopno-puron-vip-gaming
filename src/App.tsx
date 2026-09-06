@@ -395,12 +395,14 @@ export default function App() {
 
   // ডাটাবেজ থেকে আসল প্রোফাইল ও লাইভ ব্যালেন্স ফেচ করার লজিক এবং রিয়েল-টাইম WebSocket/Polling কানেকশন
   useEffect(() => {
+    const activeUserId = currentUser?._id || currentUser?.id || 'usr_78912';
+
     if (isAdmin) {
-      realtimeSync.destroy();
+      // Admin keeps a live WebSocket so AdminDashboard receives real-time
+      // deposit events (DEPOSIT_APPROVED etc.) without a page reload.
+      realtimeSync.connect(activeUserId);
       return;
     }
-
-    const activeUserId = currentUser?._id || currentUser?.id || 'usr_78912';
 
     // WebSocket auto-reconnect এবং HTTP polling fallback ইনিশিয়ালাইজেশন
     realtimeSync.connect(activeUserId);
@@ -796,9 +798,9 @@ export default function App() {
 
       const data = await response.json();
 
-      if (data.success && data.updatedDeposit) {
+      if (data.success && (data.deposit || data.updatedDeposit)) {
         // Explicitly sync the local state with the exact record from the server
-        const updated = data.updatedDeposit;
+        const updated = data.deposit || data.updatedDeposit;
         const mappedUpdated = {
           id: updated._id || updated.id,
           userId: updated.userId,

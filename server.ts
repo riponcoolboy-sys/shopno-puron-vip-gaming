@@ -1626,7 +1626,13 @@ async function startServer() {
       }
 
       if (depositDoc.status === 'approved') {
-        return res.status(200).json({ success: true, message: 'Deposit already approved', updatedDeposit: depositDoc.toObject ? depositDoc.toObject() : depositDoc });
+        const existingDeposit = depositDoc.toObject ? depositDoc.toObject() : depositDoc;
+        return res.status(200).json({
+          success: true,
+          message: 'Deposit already approved',
+          deposit: existingDeposit,
+          updatedDeposit: existingDeposit,
+        });
       }
 
       if (depositDoc.status === 'rejected') {
@@ -1675,6 +1681,22 @@ async function startServer() {
         deposit: serializableDeposit,
       });
 
+      // Real-time DEPOSIT_APPROVED event for admin/player dashboards (WebSocket)
+      const depositApprovedEvent = JSON.stringify({
+        type: 'DEPOSIT_APPROVED',
+        deposit: serializableDeposit,
+        serverTime: Date.now(),
+      });
+      for (const client of connectedClients) {
+        if (client.ws.readyState === WebSocket.OPEN) {
+          try {
+            client.ws.send(depositApprovedEvent);
+          } catch (e) {
+            console.error("WS Deposit event error:", e);
+          }
+        }
+      }
+
       // 🚨 Telegram alert — deposit approved
       const depositApprovedMsg =
 `✅ DEPOSIT APPROVED!
@@ -1689,6 +1711,7 @@ async function startServer() {
       return res.status(200).json({
         success: true,
         message: 'Deposit approved successfully',
+        deposit: serializableDeposit,
         updatedDeposit: serializableDeposit,
         newBalance,
       });
