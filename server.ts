@@ -508,6 +508,19 @@ export const verifyAdmin = (req: express.Request, res: express.Response, next: e
   }
 };
 
+// Flexible deposit lookup: matches MongoDB _id (ObjectId) or an exact
+// (case-insensitive) transactionId.
+const findDepositByIdOrTrx = async (rawId: string): Promise<any> => {
+  const value = String(rawId || '').trim();
+  if (!value) return null;
+  return DepositModel.findOne({
+    $or: [
+      ...(mongoose.isValidObjectId(value) ? [{ _id: value }] : []),
+      { transactionId: value.toUpperCase() },
+    ],
+  });
+};
+
 async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT) || 3001;
@@ -1491,6 +1504,14 @@ async function startServer() {
   // ==========================================
   app.get('/api/deposits', async (req, res) => {
     try {
+      if (isMongoConnected) {
+        const depositDocs = await DepositModel.find().sort({ createdAt: -1 }).lean().exec();
+        return res.status(200).json({
+          success: true,
+          deposits: depositDocs,
+        });
+      }
+
       res.status(200).json({
         success: true,
         deposits: dbDeposits,
@@ -1614,12 +1635,7 @@ async function startServer() {
         return res.status(400).json({ success: false, message: 'Invalid deposit ID or status' });
       }
 
-      const depositDoc = await DepositModel.findOne({
-        $or: [
-          { transactionId: String(depositId).trim().toUpperCase() },
-          ...(mongoose.isValidObjectId(String(depositId)) ? [{ _id: String(depositId) }] : []),
-        ],
-      });
+      const depositDoc = await findDepositByIdOrTrx(depositId);
 
       if (!depositDoc) {
         return res.status(404).json({ success: false, message: 'Deposit request not found in database' });
@@ -1674,6 +1690,14 @@ async function startServer() {
       const serializableDeposit = updatedDeposit ? (updatedDeposit.toObject ? updatedDeposit.toObject() : updatedDeposit) : depositDoc.toObject ? depositDoc.toObject() : depositDoc;
       const newBalance = Number(serializableUser.balance || 0);
 
+      // Keep the legacy in-memory list in sync for non-connected fallback parity
+      const memoryDepositIdx = dbDeposits.findIndex(
+        (d) => d._id === String(depositDoc._id) || (d as any).id === String(depositDoc._id) || d.transactionId === serializableDeposit.transactionId
+      );
+      if (memoryDepositIdx >= 0) {
+        dbDeposits[memoryDepositIdx] = { ...dbDeposits[memoryDepositIdx], ...serializableDeposit };
+      }
+
       // BroadCast via WebSocket for real-time UI balance update
       broadcastUserBalance(String(serializableUser._id), newBalance, {
         actionType: 'DEPOSIT_APPROVED',
@@ -1723,6 +1747,7 @@ async function startServer() {
   };
 
   app.post('/api/deposit/approve', approveDepositHandler);
+  app.post('/api/admin/deposit/approve', verifyAdmin, approveDepositHandler);
   app.get('/api/admin/approve-deposit', verifyAdmin, (req, res) => {
     res.status(200).json({ success: true, message: 'Approve endpoint available', route: '/api/admin/approve-deposit' });
   });
@@ -1738,12 +1763,7 @@ async function startServer() {
         return res.status(400).json({ success: false, message: 'ইনভ্যালিড বা ইতোমধ্যে প্রসেসকৃত ডিপোজিট' });
       }
 
-      const depositDoc = await DepositModel.findOne({
-        $or: [
-          { transactionId: String(depositId).trim().toUpperCase() },
-          ...(mongoose.isValidObjectId(String(depositId)) ? [{ _id: String(depositId) }] : []),
-        ],
-      });
+      const depositDoc = await findDepositByIdOrTrx(depositId);
 
       if (!depositDoc) {
         return res.status(404).json({ success: false, message: 'Deposit request not found in database' });

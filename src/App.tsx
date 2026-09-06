@@ -775,10 +775,22 @@ export default function App() {
     } catch {}
   };
 
-  const handleApproveDeposit = async (depositId: string, transactionId?: string) => {
+  const handleApproveDeposit = async (
+    depositId: string,
+    transactionId?: string
+  ): Promise<{ success: boolean; message?: string; deposit?: DepositRequest }> => {
     // We try to find which ID is actually the primary one for the backend call
     const targetId = depositId || transactionId;
-    if (!targetId) return;
+    if (!targetId) return { success: false, message: 'Invalid deposit ID' };
+
+    const revertLocal = () =>
+      setDepositRequests((prev) =>
+        prev.map((r) =>
+          (r.id === targetId || (r as any)._id === targetId || r.transactionId === targetId)
+            ? { ...r, status: 'pending' }
+            : r
+        )
+      );
 
     // Optimistically find the request and mark as approved in local state to prevent "revert" flicker
     setDepositRequests((prev) =>
@@ -790,67 +802,67 @@ export default function App() {
     );
 
     try {
-      const response = await fetch(apiUrl('/api/deposit/approve'), {
+      const activeToken = token || localStorage.getItem('user_token') || localStorage.getItem('auth_token');
+      const approveEndpoint = activeToken ? '/api/admin/deposit/approve' : '/api/deposit/approve';
+      const response = await fetch(apiUrl(approveEndpoint), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(activeToken ? { Authorization: `Bearer ${activeToken}` } : {}),
+        },
         body: JSON.stringify({ depositId: targetId, status: 'approved' }),
       });
 
-      const data = await response.json();
-
-      if (data.success && (data.deposit || data.updatedDeposit)) {
-        // Explicitly sync the local state with the exact record from the server
-        const updated = data.deposit || data.updatedDeposit;
-        const mappedUpdated = {
-          id: updated._id || updated.id,
-          userId: updated.userId,
-          userName: updated.userName,
-          paymentMethod: updated.paymentMethod,
-          amount: updated.amount,
-          transactionId: updated.transactionId,
-          senderNumber: updated.senderNumber,
-          status: updated.status,
-          createdAt: updated.createdAt,
-          updatedAt: updated.updatedAt,
-        };
-
-        setDepositRequests((prev) => {
-          const exists = prev.some(r => r.id === mappedUpdated.id || r.transactionId === mappedUpdated.transactionId);
-          if (exists) {
-            return prev.map(r => (r.id === mappedUpdated.id || r.transactionId === mappedUpdated.transactionId) ? mappedUpdated : r);
-          }
-          return [mappedUpdated, ...prev];
-        });
-
-        // If the deposit was for the currently logged-in user, refresh their profile/balance
-        if (currentUser && (currentUser._id === updated.userId || currentUser.id === updated.userId || currentUser.username === updated.userName)) {
-          loadUserProfile();
-        }
-      } else {
-        // If server failed, revert local state to pending
-        setDepositRequests((prev) =>
-          prev.map((r) =>
-            (r.id === targetId || (r as any)._id === targetId || r.transactionId === targetId)
-              ? { ...r, status: 'pending' }
-              : r
-          )
-        );
-        console.error('Approval failed on server:', data.message);
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.message || `Approval failed (HTTP ${response.status})`);
       }
-    } catch (err) {
-      // On network error, revert local state to pending
-      setDepositRequests((prev) =>
-        prev.map((r) =>
-          (r.id === targetId || (r as any)._id === targetId || r.transactionId === targetId)
-            ? { ...r, status: 'pending' }
-            : r
-        )
-      );
-      console.error('Network error during approval:', err);
+
+      // Explicitly sync the local state with the exact record from the server
+      const updated = data.deposit || data.updatedDeposit;
+      if (!updated) {
+        return { success: true, message: data.message };
+      }
+
+      const mappedUpdated: DepositRequest = {
+        id: updated._id || updated.id,
+        userId: updated.userId,
+        userName: updated.userName,
+        paymentMethod: updated.paymentMethod,
+        amount: updated.amount,
+        transactionId: updated.transactionId,
+        senderNumber: updated.senderNumber,
+        status: updated.status,
+        createdAt: updated.createdAt,
+        updatedAt: updated.updatedAt,
+      };
+
+      setDepositRequests((prev) => {
+        const exists = prev.some((r) => r.id === mappedUpdated.id || r.transactionId === mappedUpdated.transactionId);
+        if (exists) {
+          return prev.map((r) => (r.id === mappedUpdated.id || r.transactionId === mappedUpdated.transactionId) ? mappedUpdated : r);
+        }
+        return [mappedUpdated, ...prev];
+      });
+
+      // If the deposit was for the currently logged-in user, refresh their profile/balance
+      if (currentUser && (currentUser._id === updated.userId || currentUser.id === updated.userId || currentUser.username === updated.userName)) {
+        loadUserProfile();
+      }
+
+      return { success: true, message: data.message, deposit: mappedUpdated };
+    } catch (err: any) {
+      // On failure, revert local state to pending
+      revertLocal();
+      console.error('Approval failed:', err?.message || err);
+      return { success: false, message: err?.message || 'Network error during approval' };
     }
   };
 
-  const handleRejectDeposit = async (depositId: string, reason?: string) => {
+  const handleRejectDeposit = async (
+    depositId: string,
+    reason?: string
+  ): Promise<{ success: boolean; message?: string; deposit?: DepositRequest }> => {
     const normalizeValue = (value?: string | null) => String(value ?? '').trim();
     const idMatches = (
       item: DepositRequest & { trxId?: string; TrxID?: string },
@@ -878,8 +890,14 @@ export default function App() {
 
     const target = depositRequests.find((r) => matchesTarget(r as DepositRequest & { trxId?: string; TrxID?: string })) ?? null;
 
+    const revertLocal = () =>
+      setDepositRequests((prev) =>
+        prev.map((r) => (matchesTarget(r as DepositRequest & { trxId?: string; TrxID?: string }) ? { ...r, status: 'pending' } : r))
+      );
+
+    // Optimistic UI update
     setDepositRequests((prev) =>
-      prev.map((r) => (matchesTarget(r) ? { ...r, status: 'rejected', rejectionReason: reason } : r))
+      prev.map((r) => (matchesTarget(r as DepositRequest & { trxId?: string; TrxID?: string }) ? { ...r, status: 'rejected', rejectionReason: reason } : r))
     );
 
     if (target) {
@@ -892,15 +910,54 @@ export default function App() {
 
     try {
       const activeToken = token || localStorage.getItem('user_token') || localStorage.getItem('auth_token');
-      await fetch(apiUrl('/api/admin/deposit/reject'), {
+      const response = await fetch(apiUrl('/api/admin/deposit/reject'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...(activeToken ? { Authorization: `Bearer ${activeToken}` } : {}),
         },
-        body: JSON.stringify({ depositId, reason }),
+        body: JSON.stringify({ depositId, transactionId: target?.transactionId || '', reason }),
       });
-    } catch {}
+
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.message || `Rejection failed (HTTP ${response.status})`);
+      }
+
+      const updated = data.deposit || data.updatedDeposit;
+      if (updated) {
+        const mappedUpdated: DepositRequest = {
+          id: updated._id || updated.id,
+          userId: updated.userId,
+          userName: updated.userName,
+          paymentMethod: updated.paymentMethod,
+          amount: updated.amount,
+          transactionId: updated.transactionId,
+          senderNumber: updated.senderNumber,
+          status: updated.status,
+          rejectionReason: updated.rejectionReason,
+          createdAt: updated.createdAt,
+          updatedAt: updated.updatedAt,
+        };
+
+        setDepositRequests((prev) => {
+          const exists = prev.some((r) => r.id === mappedUpdated.id || r.transactionId === mappedUpdated.transactionId);
+          if (exists) {
+            return prev.map((r) => (r.id === mappedUpdated.id || r.transactionId === mappedUpdated.transactionId) ? mappedUpdated : r);
+          }
+          return [mappedUpdated, ...prev];
+        });
+
+        return { success: true, message: data.message, deposit: mappedUpdated };
+      }
+
+      return { success: true, message: data.message };
+    } catch (err: any) {
+      // On failure, revert local state to pending
+      revertLocal();
+      console.error('Rejection failed:', err?.message || err);
+      return { success: false, message: err?.message || 'Network error during rejection' };
+    }
   };
 
   const handleUpdatePaymentSettings = async (settings: PaymentSettings) => {

@@ -55,11 +55,46 @@ interface AdminDashboardProps {
   paymentSettings: PaymentSettings;
   depositRequests: DepositRequest[];
   onUpdatePaymentSettings: (settings: PaymentSettings) => void;
-  onApproveDeposit: (depositId: string, transactionId?: string) => Promise<void> | void;
-  onRejectDeposit: (depositId: string, reason?: string) => void;
+  onApproveDeposit: (depositId: string, transactionId?: string) => Promise<DepositActionResponse>;
+  onRejectDeposit: (depositId: string, reason?: string) => Promise<DepositActionResponse>;
   onLogout: () => void;
   onSwitchToLobby?: () => void;
 }
+
+export interface DepositActionResponse {
+  success: boolean;
+  message?: string;
+  deposit?: DepositRequest;
+}
+
+// Normalize a server deposit document into the local DepositRequest shape
+const mapDeposit = (d: any): DepositRequest => ({
+  id: d._id || d.id,
+  _id: d._id || d.id,
+  userId: d.userId,
+  userName: d.userName,
+  paymentMethod: d.paymentMethod,
+  amount: Number(d.amount) || 0,
+  transactionId: d.transactionId,
+  senderNumber: d.senderNumber,
+  status: d.status,
+  rejectionReason: d.rejectionReason,
+  createdAt: d.createdAt,
+  updatedAt: d.updatedAt,
+});
+
+// Merge a deposit into a list, matching by id / _id / transactionId
+const mergeDeposit = (list: DepositRequest[], incoming: DepositRequest): DepositRequest[] => {
+  const idx = list.findIndex(
+    (d) => d.id === incoming.id || d._id === incoming.id || d.transactionId === incoming.transactionId
+  );
+  if (idx >= 0) {
+    const next = [...list];
+    next[idx] = { ...next[idx], ...incoming };
+    return next;
+  }
+  return [incoming, ...list];
+};
 
 interface TransactionLogItem {
   id: string;
@@ -257,33 +292,6 @@ export default function AdminDashboard({
 
   // Real-time deposit updates via WebSocket (DEPOSIT_APPROVED / DEPOSIT_STATUS_UPDATED / DEPOSIT_CREATED)
   useEffect(() => {
-    const mapDeposit = (d: any): DepositRequest => ({
-      id: d._id || d.id,
-      _id: d._id || d.id,
-      userId: d.userId,
-      userName: d.userName,
-      paymentMethod: d.paymentMethod,
-      amount: Number(d.amount) || 0,
-      transactionId: d.transactionId,
-      senderNumber: d.senderNumber,
-      status: d.status,
-      rejectionReason: d.rejectionReason,
-      createdAt: d.createdAt,
-      updatedAt: d.updatedAt,
-    });
-
-    const mergeDeposit = (list: DepositRequest[], incoming: DepositRequest): DepositRequest[] => {
-      const idx = list.findIndex(
-        (d) => d.id === incoming.id || d._id === incoming.id || d.transactionId === incoming.transactionId
-      );
-      if (idx >= 0) {
-        const next = [...list];
-        next[idx] = { ...next[idx], ...incoming };
-        return next;
-      }
-      return [incoming, ...list];
-    };
-
     const unsubscribe = realtimeSync.on('deposit_update', (data: any) => {
       if (Array.isArray(data.deposits)) {
         const incomingList = data.deposits.map(mapDeposit);
@@ -407,49 +415,47 @@ export default function AdminDashboard({
 
   // Approve Deposit Handler
   const handleApproveDeposit = async (id: string, trxId?: string) => {
-    const target =
-      deposits.find((d) => {
-        const candidates = [d.id, d._id, d.transactionId, trxId, id].filter(Boolean) as string[];
-        return candidates.some((candidate) => candidate === id || candidate === trxId || candidate === d.transactionId);
-      }) ?? null;
+    // Target identifiers passed from the clicked button — never include the
+    // iterated deposit's own id here, or every deposit would match.
+    const targetIds = [id, trxId].filter(Boolean) as string[];
 
+    // A deposit matches when any of its identifiers equals a target identifier.
+    const depositMatches = (d: DepositRequest) => {
+      const depositIds = [d.id, d._id, d.transactionId].filter(Boolean) as string[];
+      return targetIds.some((t) => depositIds.includes(t));
+    };
+
+    const target = deposits.find(depositMatches) ?? null;
     const exactId = String(target?._id || target?.id || id).trim();
     const exactTrxId = String(target?.transactionId || trxId || '').trim();
 
-    const matchesDeposit = (d: DepositRequest) => {
-      const candidateIds = [d.id, d._id, d.transactionId, exactId, exactTrxId, id, trxId].filter(Boolean) as string[];
-      return candidateIds.some((candidate) => {
-        const normalized = String(candidate).trim();
-        return (
-          normalized === exactId ||
-          normalized === id ||
-          normalized === trxId ||
-          normalized === exactTrxId ||
-          normalized === d.transactionId ||
-          normalized === d.id ||
-          normalized === d._id
-        );
-      });
-    };
-
     sounds.playWin();
 
+    // Optimistic UI update so the button disappears / status flips instantly
+    setDeposits((prev) =>
+      prev.map((d) =>
+        depositMatches(d)
+          ? { ...d, status: 'approved', updatedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }
+          : d
+      )
+    );
+
     try {
-      await Promise.resolve(propApproveDeposit(exactId, exactTrxId));
+      const result = await Promise.resolve(propApproveDeposit(exactId, exactTrxId));
+      if (!result || !result.success) {
+        throw new Error(result?.message || 'Server did not confirm the approval');
+      }
 
-      setDeposits((prev) =>
-        prev.map((d) => (
-          matchesDeposit(d)
-            ? { ...d, status: 'approved', updatedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }
-            : d
-        ))
-      );
+      // Merge the canonical MongoDB record returned by the server
+      if (result.deposit) {
+        setDeposits((prev) => mergeDeposit(prev, mapDeposit(result.deposit)));
+      }
 
-      await fetchAllAdminData();
       showToast('ডিপোজিট সফলভাবে অনুমোদিত হয়েছে এবং প্লেয়ার ব্যালেন্স ক্রেডিট করা হয়েছে!', 'success');
     } catch {
+      // Revert the optimistic update on failure
       setDeposits((prev) =>
-        prev.map((d) => (matchesDeposit(d) ? { ...d, status: 'pending', updatedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) } : d))
+        prev.map((d) => (depositMatches(d) ? { ...d, status: 'pending', updatedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) } : d))
       );
       showToast('ডিপোজিট এপ্রুভ ব্যর্থ হয়েছে।', 'error');
     }
@@ -469,19 +475,44 @@ export default function AdminDashboard({
     };
 
     if (type === 'deposit') {
-      propRejectDeposit(id, finalReason);
+      const target = deposits.find((d) => d.id === id || d._id === id || d.transactionId === id) ?? null;
+      const exactId = String(target?._id || target?.id || id).trim();
+      const exactTrxId = String(target?.transactionId || '').trim();
+      const matchesDeposit = (d: DepositRequest) =>
+        d.id === exactId || d._id === exactId || d.transactionId === exactId || (!!exactTrxId && d.transactionId === exactTrxId);
+
+      // Optimistic UI update so the status flips instantly
       setDeposits((prev) =>
-        prev.map((d) => (d.id === id ? { ...d, status: 'rejected', rejectionReason: finalReason } : d))
+        prev.map((d) =>
+          matchesDeposit(d)
+            ? { ...d, status: 'rejected', rejectionReason: finalReason, updatedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }
+            : d
+        )
       );
-      showToast('ডিপোজিট রিকোয়েস্ট বাতিল করা হয়েছে।', 'error');
 
       try {
-        await fetch(apiUrl('/api/admin/deposit/reject'), {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({ depositId: id, reason: finalReason }),
-        });
-      } catch {}
+        const result = await Promise.resolve(propRejectDeposit(exactId, finalReason));
+        if (!result || !result.success) {
+          throw new Error(result?.message || 'Server did not confirm the rejection');
+        }
+
+        // Merge the canonical MongoDB record returned by the server
+        if (result.deposit) {
+          setDeposits((prev) => mergeDeposit(prev, mapDeposit(result.deposit)));
+        }
+
+        showToast('ডিপোজিট রিকোয়েস্ট বাতিল করা হয়েছে।', 'error');
+      } catch {
+        // Revert the optimistic update on failure
+        setDeposits((prev) =>
+          prev.map((d) =>
+            matchesDeposit(d)
+              ? { ...d, status: 'pending', updatedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }
+              : d
+          )
+        );
+        showToast('ডিপোজিট বাতিল ব্যর্থ হয়েছে।', 'error');
+      }
     } else {
       setWithdrawals((prev) =>
         prev.map((w) =>
