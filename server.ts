@@ -1629,6 +1629,10 @@ async function startServer() {
         return res.status(200).json({ success: true, message: 'Deposit already approved', updatedDeposit: depositDoc.toObject ? depositDoc.toObject() : depositDoc });
       }
 
+      if (depositDoc.status === 'rejected') {
+        return res.status(400).json({ success: false, message: 'ইনভ্যালিড বা ইতোমধ্যে প্রসেসকৃত ডিপোজিট' });
+      }
+
       const amount = Number(depositDoc.amount) || 0;
       const userId = String(depositDoc.userId || '');
       const lookupUserName = String(depositDoc.userName || '').trim();
@@ -1671,6 +1675,17 @@ async function startServer() {
         deposit: serializableDeposit,
       });
 
+      // 🚨 Telegram alert — deposit approved
+      const depositApprovedMsg =
+`✅ DEPOSIT APPROVED!
+👤 User: ${serializableDeposit.userName || serializableUser.username || userId}
+💰 Amount: ৳${amount}
+💳 Method: ${formatPaymentMethodName(serializableDeposit.paymentMethod)}
+🔢 TrxID: ${serializableDeposit.transactionId}
+📊 New Balance: ৳${newBalance}`;
+
+      sendTelegramNotification(depositApprovedMsg);
+
       return res.status(200).json({
         success: true,
         message: 'Deposit approved successfully',
@@ -1696,19 +1711,67 @@ async function startServer() {
   app.post('/api/admin/deposit/reject', verifyAdmin, async (req, res) => {
     try {
       const { depositId, reason } = req.body;
-      const deposit = dbDeposits.find((d) => d._id === depositId || (d as any).id === depositId);
-      if (!deposit || deposit.status !== 'pending') {
+      if (!depositId) {
         return res.status(400).json({ success: false, message: 'ইনভ্যালিড বা ইতোমধ্যে প্রসেসকৃত ডিপোজিট' });
       }
 
-      deposit.status = 'rejected';
-      deposit.rejectionReason = reason || 'ভুল বা অসঙ্গতিপূর্ণ ট্রানজেকশন তথ্য';
-      deposit.updatedAt = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const depositDoc = await DepositModel.findOne({
+        $or: [
+          { transactionId: String(depositId).trim().toUpperCase() },
+          ...(mongoose.isValidObjectId(String(depositId)) ? [{ _id: String(depositId) }] : []),
+        ],
+      });
+
+      if (!depositDoc) {
+        return res.status(404).json({ success: false, message: 'Deposit request not found in database' });
+      }
+
+      if (depositDoc.status === 'rejected') {
+        return res.status(200).json({
+          success: true,
+          message: 'ডিপোজিট ইতোমধ্যে বাতিল করা হয়েছে।',
+          deposit: depositDoc.toObject ? depositDoc.toObject() : depositDoc,
+        });
+      }
+
+      if (depositDoc.status !== 'pending') {
+        return res.status(400).json({ success: false, message: 'ইনভ্যালিড বা ইতোমধ্যে প্রসেসকৃত ডিপোজিট' });
+      }
+
+      const rejectionReason = String(reason || '').trim() || 'ভুল বা অসঙ্গতিপূর্ণ ট্রানজেকশন তথ্য';
+
+      const updatedDeposit = await DepositModel.findOneAndUpdate(
+        { _id: depositDoc._id },
+        { status: 'rejected', rejectionReason, updatedAt: new Date() },
+        { new: true }
+      );
+
+      if (!updatedDeposit) {
+        return res.status(500).json({ success: false, message: 'ডাটাবেজ আপডেট ব্যর্থ হয়েছে।' });
+      }
+
+      const serializableDeposit = updatedDeposit.toObject ? updatedDeposit.toObject() : updatedDeposit;
+
+      // Real-time WebSocket broadcast so admin/player UIs stay in sync
+      const rejectEvent = JSON.stringify({
+        type: 'DEPOSIT_STATUS_UPDATED',
+        deposit: serializableDeposit,
+        serverTime: Date.now(),
+      });
+      for (const client of connectedClients) {
+        if (client.ws.readyState === WebSocket.OPEN) {
+          try {
+            client.ws.send(rejectEvent);
+          } catch (e) {
+            console.error("WS Deposit event error:", e);
+          }
+        }
+      }
 
       res.status(200).json({
         success: true,
-        message: 'ডিপোজিট বাতিল করা হয়েছে।',
-        deposit,
+        message: 'ডিপোজিট বাতিল করা হয়েছে।',
+        deposit: serializableDeposit,
       });
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message || 'Server error' });
