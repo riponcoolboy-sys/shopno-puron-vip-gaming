@@ -508,17 +508,29 @@ export const verifyAdmin = (req: express.Request, res: express.Response, next: e
   }
 };
 
-// Flexible deposit lookup: matches MongoDB _id (ObjectId) or an exact
-// (case-insensitive) transactionId.
+// Flexible deposit lookup: matches MongoDB _id (ObjectId), transactionId,
+// or userId (with status: 'pending' to get the most recent pending deposit).
 const findDepositByIdOrTrx = async (rawId: string): Promise<any> => {
   const value = String(rawId || '').trim();
   if (!value) return null;
-  return DepositModel.findOne({
-    $or: [
-      ...(mongoose.isValidObjectId(value) ? [{ _id: value }] : []),
-      { transactionId: value.toUpperCase() },
-    ],
-  });
+
+  const orConditions: any[] = [];
+
+  // 1. Match by MongoDB _id (only if value is a valid ObjectId)
+  if (mongoose.isValidObjectId(value)) {
+    orConditions.push({ _id: value });
+  }
+
+  // 2. Match by transactionId (case-insensitive)
+  if (value) {
+    orConditions.push({ transactionId: value.toUpperCase() });
+  }
+
+  // 3. Match by userId (get the most recent pending deposit for this user)
+  orConditions.push({ userId: value, status: 'pending' });
+
+  const deposit = await DepositModel.findOne({ $or: orConditions }).sort({ createdAt: -1 });
+  return deposit;
 };
 
 async function startServer() {
@@ -1629,9 +1641,10 @@ async function startServer() {
   // POST /api/admin/approve-deposit (alias for frontend compatibility)
   // ==========================================
   const approveDepositHandler = async (req: any, res: any) => {
+    // Extract depositId at function scope so it's accessible in catch block
+    const depositId: string = req.body?.depositId || req.body?.id || '';
     try {
-      const { depositId, status } = req.body;
-      if (!depositId || status !== 'approved') {
+      if (!depositId || req.body?.status !== 'approved') {
         return res.status(400).json({ success: false, message: 'Invalid deposit ID or status' });
       }
 
@@ -1659,18 +1672,24 @@ async function startServer() {
       const userId = String(depositDoc.userId || '');
       const lookupUserName = String(depositDoc.userName || '').trim();
 
-      let userDoc = await UserModel.findOne({
-        $or: [
-          ...(mongoose.isValidObjectId(userId) ? [{ _id: userId }] : []),
-          ...(lookupUserName ? [{ username: lookupUserName.toLowerCase() }] : []),
-        ],
-      });
-
-      if (!userDoc && userId) {
-        userDoc = await UserModel.findOne({ username: userId.toLowerCase() });
+      // Find the user by _id, username, or id (handles both ObjectId and string IDs like 'usr_78912')
+      const userOrConditions: any[] = [];
+      if (mongoose.isValidObjectId(userId)) {
+        userOrConditions.push({ _id: userId });
       }
+      if (lookupUserName) {
+        userOrConditions.push({ username: lookupUserName });
+        userOrConditions.push({ username: lookupUserName.toLowerCase() });
+      }
+      userOrConditions.push({ id: userId });
+      userOrConditions.push({ username: userId });
+      userOrConditions.push({ username: userId.toLowerCase() });
+      userOrConditions.push({ phone: userId });
+
+      let userDoc = await UserModel.findOne({ $or: userOrConditions });
 
       if (!userDoc) {
+        console.error(`[DEPOSIT APPROVE] User not found for deposit. userId: "${userId}", userName: "${lookupUserName}"`);
         return res.status(404).json({ success: false, message: 'User associated with this deposit not found' });
       }
 
@@ -1741,8 +1760,17 @@ async function startServer() {
       });
 
     } catch (error: any) {
-      console.error('[CRITICAL] Deposit Approval Error:', error);
-      return res.status(500).json({ success: false, message: 'Server error during database update' });
+      console.error('[DEPOSIT APPROVE] Critical error during approval:', {
+        depositId,
+        errorMessage: error?.message,
+        errorStack: error?.stack,
+        errorName: error?.name,
+        mongoCode: error?.code,
+      });
+      return res.status(500).json({
+        success: false,
+        message: `Server error during database update: ${error?.message || 'Unknown error'}`,
+      });
     }
   };
 
@@ -1817,7 +1845,17 @@ async function startServer() {
         deposit: serializableDeposit,
       });
     } catch (error: any) {
-      res.status(500).json({ success: false, error: error.message || 'Server error' });
+      console.error('[DEPOSIT REJECT] Critical error during rejection:', {
+        depositId: req.body?.depositId,
+        errorMessage: error?.message,
+        errorStack: error?.stack,
+        errorName: error?.name,
+        mongoCode: error?.code,
+      });
+      res.status(500).json({
+        success: false,
+        message: `Server error during rejection: ${error?.message || 'Unknown error'}`,
+      });
     }
   });
 
