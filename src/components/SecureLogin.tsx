@@ -4,8 +4,9 @@ import { sounds } from '../utils/audio';
 import { User } from '../types';
 import { sanitizeInput, authRateLimiter, secureStorage } from '../utils/security';
 
-// Render ব্যাকএন্ডের মূল URL
-const API_BASE_URL = 'https://shopno-puron-vip-backend.onrender.com';
+// Backend URL - uses VITE_API_URL env var if set, otherwise relative paths
+const RUNTIME_ENV = (import.meta as unknown as { env?: Record<string, string> }).env || {};
+const API_BASE_URL = RUNTIME_ENV.VITE_API_URL || '';
 const PERSISTENT_USER_KEY = 'SHOPNO_PURON_USER_V2';
 const ADMIN_USER_KEY = 'SHOPNO_PURON_ADMIN_USER_V2';
 

@@ -884,14 +884,40 @@ export default function App() {
 
       // Detailed error logging for debugging network/CORS issues
       const errorMessage = err?.message || 'Network error during approval';
+      const isUnauthorized = errorMessage.includes('401') || errorMessage.includes('Unauthorized') || errorMessage.includes('এক্সেস ডিনাইড');
+
       console.error('[DEPOSIT APPROVE] Approval failed:', {
         error: errorMessage,
+        isUnauthorized,
         name: err?.name,
         stack: err?.stack,
         targetId,
         fullUrl: apiUrl(approveEndpoint),
         timestamp: new Date().toISOString(),
       });
+
+      // Handle 401 Unauthorized - redirect to login for re-authentication
+      if (isUnauthorized) {
+        console.warn('[DEPOSIT APPROVE] 401 Unauthorized - redirecting to login for re-authentication');
+        alert('সেশন মেয়াদ শেষ হয়েছে বা অননুমোদিত প্রবেশ। অনুগ্রহ করে আবার লগইন করুন।');
+
+        // Clear auth tokens and redirect to login
+        secureStorage.removeItem('user_token');
+        secureStorage.removeItem('auth_token');
+        secureStorage.removeItem('admin_token');
+        localStorage.removeItem('user_token');
+        localStorage.removeItem('auth_token');
+        localStorage.removeItem('admin_token');
+        localStorage.removeItem('isAdmin');
+        localStorage.removeItem('user_role');
+        setToken(null);
+        setRole(null);
+        setIsAdmin(false);
+        setAdminUser(null);
+        setCurrentUser(null);
+
+        return { success: false, message: 'Session expired. Please login again.' };
+      }
 
       // Show alert for immediate visibility of network failures
       if (errorMessage.includes('Failed to fetch') || errorMessage.includes('NetworkError')) {
@@ -998,8 +1024,39 @@ export default function App() {
     } catch (err: any) {
       // On failure, revert local state to pending
       revertLocal();
-      console.error('Rejection failed:', err?.message || err);
-      return { success: false, message: err?.message || 'Network error during rejection' };
+
+      const errorMessage = err?.message || 'Network error during rejection';
+      const isUnauthorized = errorMessage.includes('401') || errorMessage.includes('Unauthorized') || errorMessage.includes('এক্সেস ডিনাইড');
+
+      console.error('[DEPOSIT REJECT] Rejection failed:', {
+        error: errorMessage,
+        isUnauthorized,
+      });
+
+      // Handle 401 Unauthorized - redirect to login for re-authentication
+      if (isUnauthorized) {
+        console.warn('[DEPOSIT REJECT] 401 Unauthorized - redirecting to login for re-authentication');
+        alert('সেশন মেয়াদ শেষ হয়েছে বা অননুমোদিত প্রবেশ। অনুগ্রহ করে আবার লগইন করুন।');
+
+        // Clear auth tokens and redirect to login
+        secureStorage.removeItem('user_token');
+        secureStorage.removeItem('auth_token');
+        secureStorage.removeItem('admin_token');
+        localStorage.removeItem('user_token');
+        localStorage.removeItem('auth_token');
+        localStorage.removeItem('admin_token');
+        localStorage.removeItem('isAdmin');
+        localStorage.removeItem('user_role');
+        setToken(null);
+        setRole(null);
+        setIsAdmin(false);
+        setAdminUser(null);
+        setCurrentUser(null);
+
+        return { success: false, message: 'Session expired. Please login again.' };
+      }
+
+      return { success: false, message: errorMessage };
     }
   };
 
