@@ -801,19 +801,46 @@ export default function App() {
       )
     );
 
+    // Declare endpoint at function scope so it's accessible in both try and catch blocks
+    const activeToken = token || localStorage.getItem('user_token') || localStorage.getItem('auth_token');
+    const approveEndpoint = activeToken ? '/api/admin/deposit/approve' : '/api/deposit/approve';
+
     try {
-      const activeToken = token || localStorage.getItem('user_token') || localStorage.getItem('auth_token');
-      const approveEndpoint = activeToken ? '/api/admin/deposit/approve' : '/api/deposit/approve';
-      const response = await fetch(apiUrl(approveEndpoint), {
+      const fullUrl = apiUrl(approveEndpoint);
+      const payload = { depositId: targetId, status: 'approved' };
+
+      // Debug logging for network issues
+      console.log('[DEPOSIT APPROVE] Sending approval request:', {
+        url: fullUrl,
+        endpoint: approveEndpoint,
+        payload,
+        hasToken: !!activeToken,
+        timestamp: new Date().toISOString(),
+      });
+
+      const response = await fetch(fullUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...(activeToken ? { Authorization: `Bearer ${activeToken}` } : {}),
         },
-        body: JSON.stringify({ depositId: targetId, status: 'approved' }),
+        body: JSON.stringify(payload),
       });
 
-      const data = await response.json().catch(() => null);
+      console.log('[DEPOSIT APPROVE] Response received:', {
+        status: response.status,
+        statusText: response.statusText,
+        ok: response.ok,
+        url: response.url,
+      });
+
+      const data = await response.json().catch((parseErr) => {
+        console.error('[DEPOSIT APPROVE] Failed to parse JSON response:', parseErr);
+        return null;
+      });
+
+      console.log('[DEPOSIT APPROVE] Response data:', data);
+
       if (!response.ok || !data?.success) {
         throw new Error(data?.message || `Approval failed (HTTP ${response.status})`);
       }
@@ -854,8 +881,24 @@ export default function App() {
     } catch (err: any) {
       // On failure, revert local state to pending
       revertLocal();
-      console.error('Approval failed:', err?.message || err);
-      return { success: false, message: err?.message || 'Network error during approval' };
+
+      // Detailed error logging for debugging network/CORS issues
+      const errorMessage = err?.message || 'Network error during approval';
+      console.error('[DEPOSIT APPROVE] Approval failed:', {
+        error: errorMessage,
+        name: err?.name,
+        stack: err?.stack,
+        targetId,
+        fullUrl: apiUrl(approveEndpoint),
+        timestamp: new Date().toISOString(),
+      });
+
+      // Show alert for immediate visibility of network failures
+      if (errorMessage.includes('Failed to fetch') || errorMessage.includes('NetworkError')) {
+        alert(`Network error: Cannot reach the backend server.\n\nURL: ${apiUrl(approveEndpoint)}\nError: ${errorMessage}\n\nPlease check:\n1. Backend server is running\n2. CORS is configured\n3. VITE_API_URL env var is set correctly`);
+      }
+
+      return { success: false, message: errorMessage };
     }
   };
 

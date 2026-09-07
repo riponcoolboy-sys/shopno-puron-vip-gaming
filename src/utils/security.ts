@@ -346,12 +346,29 @@ export function getSecureApiHeaders(customHeaders: Record<string, string> = {}):
 
 /**
  * Secure wrapper around fetch that automatically adds CSRF, JWT, and integrity headers
+ *
+ * Priority:
+ * 1. VITE_API_URL env var (set in Vercel/build env)
+ * 2. Relative path (same-origin deployment - recommended for Vercel)
+ * 3. Legacy Render fallback (only if explicitly configured)
  */
-export const API_BASE_URL = 'https://shopno-puron-vip-backend.onrender.com';
+const RUNTIME_ENV = (import.meta as unknown as { env?: Record<string, string> }).env || {};
+const ENV_API_URL = RUNTIME_ENV.VITE_API_URL || '';
+
+export const API_BASE_URL = ENV_API_URL;
 
 export function apiUrl(path: string): string {
+  // If path is already a full URL, return as-is
   if (/^https?:\/\//i.test(path)) return path;
-  return `${API_BASE_URL}${path.startsWith('/') ? path : `/${path}`}`;
+
+  // If VITE_API_URL is configured, use it as base
+  if (ENV_API_URL) {
+    return `${ENV_API_URL}${path.startsWith('/') ? path : `/${path}`}`;
+  }
+
+  // Default: use relative path for same-origin deployment (Vercel, Netlify, etc.)
+  // This ensures requests go to the same domain as the frontend
+  return path.startsWith('/') ? path : `/${path}`;
 }
 
 export async function secureFetch(url: string, options: RequestInit = {}): Promise<Response> {

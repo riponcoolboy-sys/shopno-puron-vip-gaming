@@ -8,6 +8,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jwt-simple';
 import mongoose from 'mongoose';
 import { WebSocketServer, WebSocket } from 'ws';
+import cors from 'cors';
 import {
   calculateRTPWin,
   determineRTPTier,
@@ -537,12 +538,27 @@ async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT) || 3001;
 
+  // CORS configuration - allows all origins for API endpoints
+  // In production, you can restrict this to specific origins
+  app.use(cors({
+    origin: true, // Reflects the request origin (allows all)
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-csrf-token'],
+    credentials: true,
+    preflightContinue: false,
+    optionsSuccessStatus: 200,
+  }));
+
+  // Additional CORS headers middleware for edge cases
   app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
     res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
     res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-csrf-token');
+    res.header('Access-Control-Expose-Headers', 'Content-Length, X-Request-Id');
 
+    // Handle OPTIONS preflight requests
     if (req.method === 'OPTIONS') {
+      res.header('Access-Control-Max-Age', '86400'); // 24 hours cache for preflight
       return res.sendStatus(200);
     }
 
