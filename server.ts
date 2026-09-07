@@ -1641,21 +1641,63 @@ async function startServer() {
   // POST /api/admin/approve-deposit (alias for frontend compatibility)
   // ==========================================
   const approveDepositHandler = async (req: any, res: any) => {
-    // Extract depositId at function scope so it's accessible in catch block
-    const depositId: string = req.body?.depositId || req.body?.id || '';
+    // Extract IDs flexibly from multiple possible body field names for 100% resilience
+    const depId = req.body?.depositId || req.body?.id || req.body?._id || '';
+    const userKey = req.body?.username || req.body?.userId || req.body?.user || '';
+    const trxId = req.body?.trxId || req.body?.transactionId || '';
+
+    // depositId at function scope for catch block logging
+    const depositId = depId;
+
     try {
-      if (!depositId || req.body?.status !== 'approved') {
-        return res.status(400).json({ success: false, message: 'Invalid deposit ID or status' });
+      // Validate that we have at least one identifier to work with
+      if (!depId && !trxId && !userKey) {
+        return res.status(400).json({ success: false, message: 'Invalid deposit ID or status. Provide depositId, trxId, or username.' });
       }
 
-      const depositDoc = await findDepositByIdOrTrx(depositId);
+      // Ensure status is 'approved' (accept from body or default since this is the approve endpoint)
+      const requestedStatus = req.body?.status || 'approved';
+      if (requestedStatus !== 'approved') {
+        return res.status(400).json({ success: false, message: 'Invalid status. This endpoint only approves deposits.' });
+      }
 
-      if (!depositDoc) {
+      // Build $or conditions for deposit lookup — filter out null/empty values
+      const depositOrConditions: any[] = [];
+
+      // Match by _id (only if valid ObjectId)
+      depositOrConditions.push({ _id: mongoose.isValidObjectId(depId) ? depId : null });
+      // Match by id field (for non-ObjectId string IDs)
+      depositOrConditions.push({ id: depId });
+      // Match by trxId / transactionId
+      depositOrConditions.push({ trxId: trxId });
+
+      // Filter out conditions with null values to avoid MongoDB errors
+      const filteredDepositConditions = depositOrConditions.filter(
+        (cond) => Object.values(cond)[0] !== null && Object.values(cond)[0] !== ''
+      );
+
+      // If no valid deposit conditions, try matching by userKey as userId or userName
+      if (filteredDepositConditions.length === 0 && userKey) {
+        filteredDepositConditions.push({ userId: userKey, status: 'pending' });
+        filteredDepositConditions.push({ userName: userKey, status: 'pending' });
+      }
+
+      if (filteredDepositConditions.length === 0) {
+        return res.status(400).json({ success: false, message: 'No valid deposit identifier provided' });
+      }
+
+      // Find the deposit document
+      const deposit = await DepositModel.findOne({
+        $or: filteredDepositConditions,
+      }).sort({ createdAt: -1 });
+
+      if (!deposit) {
         return res.status(404).json({ success: false, message: 'Deposit request not found in database' });
       }
 
-      if (depositDoc.status === 'approved') {
-        const existingDeposit = depositDoc.toObject ? depositDoc.toObject() : depositDoc;
+      // Handle already-approved deposits idempotently
+      if (deposit.status === 'approved') {
+        const existingDeposit = deposit.toObject ? deposit.toObject() : deposit;
         return res.status(200).json({
           success: true,
           message: 'Deposit already approved',
@@ -1664,54 +1706,84 @@ async function startServer() {
         });
       }
 
-      if (depositDoc.status === 'rejected') {
+      // Reject if already rejected
+      if (deposit.status === 'rejected') {
         return res.status(400).json({ success: false, message: 'ইনভ্যালিড বা ইতোমধ্যে প্রসেসকৃত ডিপোজিট' });
       }
 
-      const amount = Number(depositDoc.amount) || 0;
-      const userId = String(depositDoc.userId || '');
-      const lookupUserName = String(depositDoc.userName || '').trim();
+      // Determine the amount to credit (from deposit record or fallback to body)
+      const amount = Number(deposit.amount) || Number(req.body?.amount) || 0;
 
-      // Find the user by _id, username, or id (handles both ObjectId and string IDs like 'usr_78912')
+      // Determine user identifiers from the deposit document and request body
+      const depositUserId = String(deposit.userId || '');
+      const depositUserName = String(deposit.userName || '').trim();
+      const bodyUserKey = String(userKey || '').trim();
+
+      // Build $or conditions for user lookup — username (case-insensitive) or _id (if valid ObjectId)
       const userOrConditions: any[] = [];
-      if (mongoose.isValidObjectId(userId)) {
-        userOrConditions.push({ _id: userId });
-      }
-      if (lookupUserName) {
-        userOrConditions.push({ username: lookupUserName });
-        userOrConditions.push({ username: lookupUserName.toLowerCase() });
-      }
-      userOrConditions.push({ id: userId });
-      userOrConditions.push({ username: userId });
-      userOrConditions.push({ username: userId.toLowerCase() });
-      userOrConditions.push({ phone: userId });
 
-      let userDoc = await UserModel.findOne({ $or: userOrConditions });
+      // Use username from deposit document or from request body
+      const usernameCandidates = [depositUserName, bodyUserKey, depositUserId].filter(Boolean);
+      for (const candidate of usernameCandidates) {
+        userOrConditions.push({ username: candidate });
+        userOrConditions.push({ username: candidate.toLowerCase() });
+      }
+
+      // Also try matching by _id if any identifier is a valid ObjectId
+      if (mongoose.isValidObjectId(depositUserId)) {
+        userOrConditions.push({ _id: depositUserId });
+      }
+      if (mongoose.isValidObjectId(bodyUserKey)) {
+        userOrConditions.push({ _id: bodyUserKey });
+      }
+
+      // Fallback: match by id field for non-ObjectId string IDs
+      if (depositUserId) {
+        userOrConditions.push({ id: depositUserId });
+      }
+      if (bodyUserKey) {
+        userOrConditions.push({ id: bodyUserKey });
+      }
+
+      // Remove duplicate conditions to keep query clean
+      const uniqueUserConditions = userOrConditions.filter(
+        (cond, index, self) => index === self.findIndex((c) => JSON.stringify(c) === JSON.stringify(cond))
+      );
+
+      // Find the user associated with this deposit
+      const userDoc = await UserModel.findOne({ $or: uniqueUserConditions });
 
       if (!userDoc) {
-        console.error(`[DEPOSIT APPROVE] User not found for deposit. userId: "${userId}", userName: "${lookupUserName}"`);
+        console.error(`[DEPOSIT APPROVE] User not found for deposit. depositUserId: "${depositUserId}", depositUserName: "${depositUserName}", bodyUserKey: "${bodyUserKey}"`);
         return res.status(404).json({ success: false, message: 'User associated with this deposit not found' });
       }
 
+      // Update user balance using $inc with the deposit amount
       const updatedUser = await UserModel.findOneAndUpdate(
         { _id: userDoc._id },
         { $inc: { balance: amount }, $set: { updatedAt: new Date() } },
         { new: true }
       );
 
+      // Update deposit status to 'approved' in MongoDB and save
+      deposit.status = 'approved';
+      deposit.updatedAt = new Date();
+      await deposit.save();
+
+      // Also update via findOneAndUpdate for atomicity and to get the latest doc
       const updatedDeposit = await DepositModel.findOneAndUpdate(
-        { _id: depositDoc._id },
+        { _id: deposit._id },
         { status: 'approved', updatedAt: new Date() },
         { new: true }
       );
 
       const serializableUser = updatedUser ? (updatedUser.toObject ? updatedUser.toObject() : updatedUser) : userDoc.toObject ? userDoc.toObject() : userDoc;
-      const serializableDeposit = updatedDeposit ? (updatedDeposit.toObject ? updatedDeposit.toObject() : updatedDeposit) : depositDoc.toObject ? depositDoc.toObject() : depositDoc;
+      const serializableDeposit = updatedDeposit ? (updatedDeposit.toObject ? updatedDeposit.toObject() : updatedDeposit) : deposit.toObject ? deposit.toObject() : deposit;
       const newBalance = Number(serializableUser.balance || 0);
 
       // Keep the legacy in-memory list in sync for non-connected fallback parity
       const memoryDepositIdx = dbDeposits.findIndex(
-        (d) => d._id === String(depositDoc._id) || (d as any).id === String(depositDoc._id) || d.transactionId === serializableDeposit.transactionId
+        (d) => d._id === String(deposit._id) || (d as any).id === String(deposit._id) || d.transactionId === serializableDeposit.transactionId
       );
       if (memoryDepositIdx >= 0) {
         dbDeposits[memoryDepositIdx] = { ...dbDeposits[memoryDepositIdx], ...serializableDeposit };
@@ -1743,7 +1815,7 @@ async function startServer() {
       // 🚨 Telegram alert — deposit approved
       const depositApprovedMsg =
 `✅ DEPOSIT APPROVED!
-👤 User: ${serializableDeposit.userName || serializableUser.username || userId}
+👤 User: ${serializableDeposit.userName || serializableUser.username || depositUserId}
 💰 Amount: ৳${amount}
 💳 Method: ${formatPaymentMethodName(serializableDeposit.paymentMethod)}
 🔢 TrxID: ${serializableDeposit.transactionId}
@@ -1753,7 +1825,7 @@ async function startServer() {
 
       return res.status(200).json({
         success: true,
-        message: 'Deposit approved successfully',
+        message: 'Approved successfully',
         deposit: serializableDeposit,
         updatedDeposit: serializableDeposit,
         newBalance,
