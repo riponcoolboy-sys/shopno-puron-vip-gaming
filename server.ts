@@ -1658,12 +1658,15 @@ async function startServer() {
   // ==========================================
   const approveDepositHandler = async (req: any, res: any) => {
     // Extract IDs flexibly from multiple possible body field names for 100% resilience
+    const depositId = req.body?.id || req.body?.depositId || req.body?.trxId || '';
     const depId = req.body?.depositId || req.body?.id || req.body?._id || '';
     const userKey = req.body?.username || req.body?.userId || req.body?.user || '';
     const trxId = req.body?.trxId || req.body?.transactionId || '';
 
-    // depositId at function scope for catch block logging
-    const depositId = depId;
+    // User identifier variables declared at function scope for access in catch block
+    let depositUserId = '';
+    let depositUserName = '';
+    let bodyUserKey = '';
 
     try {
       // Validate that we have at least one identifier to work with
@@ -1731,9 +1734,10 @@ async function startServer() {
       const amount = Number(deposit.amount) || Number(req.body?.amount) || 0;
 
       // Determine user identifiers from the deposit document and request body
-      const depositUserId = String(deposit.userId || '');
-      const depositUserName = String(deposit.userName || '').trim();
-      const bodyUserKey = String(userKey || '').trim();
+      // Assign to function-scoped variables (declared above) for access in catch block
+      depositUserId = String(deposit.userId || '');
+      depositUserName = String(deposit.userName || '').trim();
+      bodyUserKey = String(userKey || '').trim();
 
       // Build $or conditions for user lookup — username (case-insensitive) or _id (if valid ObjectId)
       const userOrConditions: any[] = [];
