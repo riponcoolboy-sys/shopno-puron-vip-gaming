@@ -2289,3 +2289,6 @@ async function startServer() {
 }
 
 startServer();
+// @ts-ignore
+const defaultApp = typeof app !== 'undefined' ? app : httpServer;
+export default defaultApp;
