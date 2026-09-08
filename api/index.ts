@@ -1,9 +1,4 @@
-// @ts-ignore
+import serverless from 'serverless-http';
 import app from '../server';
 
-export default function handler(req: any, res: any) {
-  if (typeof app === 'function') {
-    return app(req, res);
-  }
-  return (app as any).emit('request', req, res);
-}
+export default serverless(app as any);
