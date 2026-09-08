@@ -802,7 +802,7 @@ export default function App() {
     );
 
     // Declare endpoint at function scope so it's accessible in both try and catch blocks
-    const activeToken = token || localStorage.getItem('token') || localStorage.getItem('user_token') || localStorage.getItem('auth_token');
+    const activeToken = token || localStorage.getItem('adminToken') || localStorage.getItem('token') || localStorage.getItem('admin_token') || localStorage.getItem('user_token') || localStorage.getItem('auth_token') || secureStorage.getItem('auth_token');
     const approveEndpoint = activeToken ? '/api/admin/deposit/approve' : '/api/deposit/approve';
 
     try {
@@ -822,7 +822,7 @@ export default function App() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${activeToken || ''}`,
+          'Authorization': activeToken ? `Bearer ${activeToken}` : '',
         },
         body: JSON.stringify(payload),
       });
@@ -978,12 +978,12 @@ export default function App() {
     }
 
     try {
-      const activeToken = token || localStorage.getItem('user_token') || localStorage.getItem('auth_token');
+      const activeToken = token || localStorage.getItem('adminToken') || localStorage.getItem('token') || localStorage.getItem('admin_token') || localStorage.getItem('user_token') || localStorage.getItem('auth_token') || secureStorage.getItem('auth_token');
       const response = await fetch(apiUrl('/api/admin/deposit/reject'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(activeToken ? { Authorization: `Bearer ${activeToken}` } : {}),
+          'Authorization': activeToken ? `Bearer ${activeToken}` : '',
         },
         body: JSON.stringify({ depositId, transactionId: target?.transactionId || '', reason }),
       });

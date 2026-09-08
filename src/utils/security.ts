@@ -349,21 +349,22 @@ export function getSecureApiHeaders(customHeaders: Record<string, string> = {}):
  *
  * Priority:
  * 1. VITE_API_URL env var (set in Vercel/build env)
- * 2. Relative path (same-origin deployment - recommended for Vercel)
- * 3. Legacy Render fallback (only if explicitly configured)
+ * 2. Relative path (same-origin deployment - recommended for Vercel/Netlify)
+ *
+ * NOTE: No onrender.com fallback is ever used. All API calls go through
+ * either an explicit env var or same-origin relative paths.
  */
-const RUNTIME_ENV = (import.meta as unknown as { env?: Record<string, string> }).env || {};
-const ENV_API_URL = RUNTIME_ENV.VITE_API_URL || '';
+const baseUrl = (import.meta as any).env?.VITE_API_URL || '';
 
-export const API_BASE_URL = ENV_API_URL;
+export const API_BASE_URL = baseUrl;
 
 export function apiUrl(path: string): string {
   // If path is already a full URL, return as-is
   if (/^https?:\/\//i.test(path)) return path;
 
   // If VITE_API_URL is configured, use it as base
-  if (ENV_API_URL) {
-    return `${ENV_API_URL}${path.startsWith('/') ? path : `/${path}`}`;
+  if (baseUrl) {
+    return `${baseUrl}${path.startsWith('/') ? path : `/${path}`}`;
   }
 
   // Default: use relative path for same-origin deployment (Vercel, Netlify, etc.)
