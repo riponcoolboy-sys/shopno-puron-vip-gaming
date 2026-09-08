@@ -1,5 +1,5 @@
 // algorithms/gameEngine.js
-const { calculateGameResult } = require('../logic/gameEngine');
+import { calculateGameResult } from '../logic/gameEngine.js';
 
 // ৩% প্লেয়ার রিফান্ড (RTP), ৯৭% নিশ্চিত হাউস মার্জিন ও অপারেটর প্রফিট
 const TARGET_RTP = 0.03; 
@@ -33,6 +33,6 @@ function calculateCrashPoint(totalBetsInRound = 0) {
   return crashPoint;
 }
 
-module.exports = { calculateCrashPoint, calculateGameResult };
+export { calculateCrashPoint, calculateGameResult };
 
 

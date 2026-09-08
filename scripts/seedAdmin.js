@@ -1,7 +1,10 @@
 // scripts/seedAdmin.js
-const mongoose = require('mongoose');
-const bcrypt = require('bcryptjs');
-const User = require('../models/User');
+import mongoose from 'mongoose';
+import bcrypt from 'bcryptjs';
+import User from '../models/User.js';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+import { resolve } from 'path';
 
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/aviator_db';
 
@@ -55,8 +58,12 @@ async function seedAdmin() {
   }
 }
 
-if (require.main === module) {
+// ESM equivalent of require.main === module
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+if (process.argv[1] && resolve(process.argv[1]) === __filename) {
   seedAdmin();
 }
 
-module.exports = seedAdmin;
+export default seedAdmin;

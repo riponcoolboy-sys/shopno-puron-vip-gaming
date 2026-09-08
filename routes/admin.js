@@ -1,7 +1,7 @@
 // routes/admin.js
-const express = require('express');
+import express from 'express';
+import jwt from 'jwt-simple';
 const router = express.Router();
-const jwt = require('jwt-simple');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your_secret_key_123';
 
@@ -38,4 +38,4 @@ router.post('/api/admin/login', async (req, res) => {
   });
 });
 
-module.exports = router;
+export default router;

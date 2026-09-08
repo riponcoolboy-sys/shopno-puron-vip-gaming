@@ -1,7 +1,7 @@
-const express = require('express');
+import express from 'express';
+import bcrypt from 'bcryptjs';
+import User from '../models/User.js'; // আপনার MongoDB User Schema
 const router = express.Router();
-const bcrypt = require('bcryptjs');
-const User = require('../models/User'); // আপনার MongoDB User Schema
 
 // ==========================================
 // ১. ইউজার রেজিস্ট্রেশন (REGISTER API)
@@ -120,4 +120,4 @@ router.post('/api/auth/login', async (req, res) => {
   }
 });
 
-module.exports = router;
+export default router;

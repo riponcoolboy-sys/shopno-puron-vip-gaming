@@ -1,6 +1,6 @@
-const express = require('express');
+import express from 'express';
+import User from '../models/User.js'; // আপনার ইউজার মডেল
 const router = express.Router();
-const User = require('../models/User'); // আপনার ইউজার মডেল
 
 // ১. প্রতীকের পে-আউট এবং ওয়েট নির্ধারণ
 const symbols = {
@@ -102,4 +102,4 @@ router.post('/api/game/fortune-gems/spin', async (req, res) => {
   }
 });
 
-module.exports = router;
+export default router;

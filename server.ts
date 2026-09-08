@@ -3,12 +3,17 @@ dotenv.config();
 import express from 'express';
 import http from 'http';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
 import bcrypt from 'bcryptjs';
 import jwt from 'jwt-simple';
 import mongoose from 'mongoose';
 import { WebSocketServer, WebSocket } from 'ws';
 import cors from 'cors';
+
+// ESM __dirname equivalent
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 import {
   calculateRTPWin,
   determineRTPTier,
@@ -534,8 +539,10 @@ const findDepositByIdOrTrx = async (rawId: string): Promise<any> => {
   return deposit;
 };
 
+// Create Express app at module level for serverless compatibility
+const app = express();
+
 async function startServer() {
-  const app = express();
   const PORT = Number(process.env.PORT) || 3001;
 
   // CORS configuration - allows all origins for API endpoints
@@ -2288,7 +2295,10 @@ async function startServer() {
   });
 }
 
-startServer();
-// @ts-ignore
-const defaultApp = typeof app !== 'undefined' ? app : httpServer;
-export default defaultApp;
+// Only start server when running directly (not when imported by serverless)
+if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
+  startServer();
+}
+
+// Export the Express app for serverless handlers
+export default app;

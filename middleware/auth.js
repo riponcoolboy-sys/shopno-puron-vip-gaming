@@ -1,5 +1,5 @@
 // middleware/auth.js
-const jwt = require('jwt-simple');
+import jwt from 'jwt-simple';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your_super_secret_key_123';
 
@@ -24,4 +24,4 @@ const requireLogin = (req, res, next) => {
   }
 };
 
-module.exports = requireLogin;
+export default requireLogin;
